@@ -1,0 +1,36 @@
+import numpy as np
+
+def bisection_min(J_theta, bracket):
+    
+    # end-points
+    a,b = bracket
+    J_a, J_b = (J_theta(a), J_theta(b))
+    
+    # central mid-points
+    x_m = (a+b) / 2.
+    J_m = J_theta(x_m)    
+    
+    tol = 1e-6
+    
+    # repeat bisectioning until the length of the bracket is small enough
+    while(np.abs(a-b) > tol):
+
+        # left and right mid-points
+        x_l = (a + x_m) / 2.
+        x_r = (b + x_m) / 2.
+        J_r, J_l = (J_theta(x_r), J_theta(x_l))
+        
+        J_min = np.min([J_a, J_b, J_m, J_r, J_l])
+        
+        # updating
+        if (J_min == J_a) | (J_min == J_l):
+            b, J_b = (x_m, J_m)            
+            x_m, J_m = (x_l, J_l)
+        elif J_min == J_m:
+            a,b = (x_l, x_r)
+            J_a, J_b = (J_l, J_r)
+        elif (J_min == J_b) | (J_min == J_r):
+            a, J_a = (x_m, J_m)            
+            x_m, J_m = (x_r, J_r)
+        
+    return x_m, J_m
