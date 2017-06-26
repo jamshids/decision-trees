@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import norm
+import pdb
 
 def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
     """
@@ -21,7 +22,6 @@ def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
     CAUTIOUN 2: |kernel_CDF| should be able to evaluate CDF of the kernel at several data samples in 
     a single call.
     """
-    
      
     if dat.ndim==1:
         d = 1

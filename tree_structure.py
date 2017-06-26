@@ -7,8 +7,8 @@ class Node:
     Tree node: left and right child + data which can be any object
     """
 
-    def __init__(self, dat, labels, is_stopped, rules=None, parent=None, 
-                 left_child=None, right_child=None):
+    def __init__(self, dat, labels, is_stopped, reach_prob, class_prob,
+                 rules=None, parent=None, left_child=None, right_child=None):
         """
         Node constructor
         """
@@ -19,13 +19,21 @@ class Node:
         self.dat = dat
         self.labels = labels
         self.is_stopped = is_stopped
+        self.reach_prob = reach_prob
+        self.class_prob = class_prob
+        
+    def compute_error_rate(self):
+        """Computing error rate of the node, based on the current posteriors
+        """
+        
+        return 1 - max(self.class_prob)
 
 class Tree(Node):
     """
     Tree class: it has a list of nodes, where the leaves are determined
     """
     
-    def __init__(self, dat, labels):
+    def __init__(self, dat, labels, kernel_CDF):
         """
         Tree constructor: the objectives is a array of functions, each
         an objective to minimize over a single feature component
@@ -40,7 +48,7 @@ class Tree(Node):
         class_info[0,:] = np.unique(labels)
         # comuting pies:
         for i in range(c):
-            class_info[1,i] = np.sum(labels==class_info[0,i])
+            class_info[1,i] = np.sum(labels==class_info[0,i]) / len(labels)
         # --------------------------------------
         # now assigning the min-max (rules of the root) 
         if dat.ndim==1:
@@ -55,9 +63,10 @@ class Tree(Node):
             raise ValueError('Dimension of the input data should not be higher than 2')
         # --------------------------------------
         # properties:
-        self.node_list = [Node(dat, labels, is_stopped, rules)]
+        self.node_list = [Node(dat, labels, is_stopped, 1., class_info[1,:], rules)]
         self.leaves = [self.node_list[0]]
-        self.class_info = class_info
+        self.symbols = class_info[0,:]
+        self.kernel_CDF = kernel_CDF
         
     
     def check_full_stopped(self):
@@ -96,12 +105,19 @@ class Tree(Node):
                 if not(leaf.is_stopped):
                     
                     # best splits:
-                    thetas, scores = fitting_tools.split_features(leaf)
+                    thetas, scores = fitting_tools.split_features(leaf, self.kernel_CDF)
                     selected_feature = np.argmin(scores)
                     best_split = thetas[selected_feature]
                     
-                    # creating the new left and right leaves
+                    # creating the new left/right leaves
                     # ----------------------------------------
+                    # priors and reachin probabilities
+                    probs = fitting_tools.compute_probs_KDE(leaf, self.kernel_CDF, self.symbols, 
+                                                            best_split, selected_feature)
+                    left_priors, right_priors = probs[:2]
+                    left_reach_prob = probs[2] * leaf.reach_prob
+                    right_reach_prob = probs[3] * leaf.reach_prob
+
                     # new rules:
                     left_rules, right_rules = fitting_tools.update_rules(best_split, selected_feature, leaf)
                     # new data
@@ -113,8 +129,10 @@ class Tree(Node):
                     is_left_stopped = len(np.unique(left_labels))==1
                     is_right_stopped = len(np.unique(right_labels))==1
                     # children:
-                    left_child = Node(left_dat, left_labels, is_left_stopped, left_rules, leaf)
-                    right_child = Node(right_dat, right_labels, is_right_stopped, right_rules, leaf)
+                    left_child = Node(left_dat, left_labels, is_left_stopped, 
+                                      left_reach_prob, left_priors, left_rules, leaf)
+                    right_child = Node(right_dat, right_labels, is_right_stopped, 
+                                       right_reach_prob, right_priors, right_rules, leaf)
                     
                     # updating the tree structure
                     # ---------------------------
