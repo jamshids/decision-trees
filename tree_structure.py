@@ -12,6 +12,10 @@ class Node:
                  rules=None, parent=None, left_child=None, right_child=None):
         """
         Node constructor
+        
+        left_child and right_child are integers. More specifically, they indicate
+        indices (ID) of the children in terms of a vocabulary of nodes (list
+        of nodes). Same story holds for the parent
         """
         self.left = left_child
         self.right = right_child
@@ -133,21 +137,21 @@ class Tree(Node):
                     is_right_stopped = len(np.unique(right_labels))==1
                     # children:
                     left_child = Node(left_dat, left_labels, is_left_stopped, 
-                                      left_reach_prob, left_priors, rules=left_rules, parent=leaf)
+                                      left_reach_prob, left_priors, rules=left_rules, parent=i)
                     right_child = Node(right_dat, right_labels, is_right_stopped, 
-                                       right_reach_prob, right_priors, rules=right_rules, parent=leaf)
+                                       right_reach_prob, right_priors, rules=right_rules, parent=i)
                     
                     # updating the tree structure
                     # ---------------------------
                     # mark the index of the current leaf to throw it out from the leaf-list
                     inds_to_remove += [i]
-                    # add the new nodes as the children of the old leaf
-                    leaf.left = left_child
-                    leaf.right = right_child
                     # add the new leaves into the leaf-list
                     current_nodes_cnt = len(self.node_list)
                     inds_to_add += [current_nodes_cnt, current_nodes_cnt+1]
                     self.node_list += [left_child, right_child]
+                    # add the new nodes as the children of the old leaf
+                    leaf.left = current_nodes_cnt
+                    leaf.right = current_nodes_cnt + 1
             
             # updating the leaf list
             for j in inds_to_remove:
@@ -206,4 +210,28 @@ class Tree(Node):
         return sub_misclass_rate, leaf_count
     
                 
+    def leaf_siblings(self):
+        """Returning those leaves with the same parents
+        """
+        
+        siblings = []
+        not_visited = copy.deepcopy(self.leaf_inds)
+        
+        while len(not_visited)>0:
+            curr_leaf_ind = not_visited[0]
+            # check if the parent has another leaf child
+            parent_ind = self.node_list[curr_leaf_ind].parent
+            parent = self.node_list[parent_ind]
+            other_child_ind = parent.right if curr_leaf_ind==parent.left \
+                else parent.left
             
+            if other_child_ind in not_visited:
+                siblings += [[curr_leaf_ind, other_child_ind]]
+                # mark them as visited by removing them from not-visited indicator
+                not_visited.remove(curr_leaf_ind)
+                not_visited.remove(other_child_ind)
+            else:
+                # only remove the left-index from the not-visited indicator
+                not_visited.remove(curr_leaf_ind)
+        
+        return siblings
