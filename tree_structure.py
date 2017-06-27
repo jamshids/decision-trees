@@ -8,13 +8,13 @@ class Node:
     Tree node: left and right child + data which can be any object
     """
 
-    def __init__(self, dat, labels, is_stopped, reach_prob, class_prob,
+    def __init__(self, key, dat, labels, is_stopped, reach_prob, class_prob,
                  rules=None, parent=None, left_child=None, right_child=None):
         """
         Node constructor
         
         left_child and right_child are integers. More specifically, they indicate
-        indices (ID) of the children in terms of a vocabulary of nodes (list
+        indices (ID) of the children in terms of a vocabulary of nodes (dictionary
         of nodes). Same story holds for the parent
         """
         self.left = left_child
@@ -68,7 +68,7 @@ class Tree(Node):
             raise ValueError('Dimension of the input data should not be higher than 2')
         # --------------------------------------
         # properties:
-        self.node_list = [Node(dat, labels, is_stopped, 1., class_info[1,:], rules)]
+        self.node_dict = {'0': Node(0, dat, labels, is_stopped, 1., class_info[1,:], rules)}
         self.leaf_inds = [0]
         self.symbols = class_info[0,:]
         self.kernel_CDF = kernel_CDF
@@ -80,7 +80,7 @@ class Tree(Node):
         """
 
         for i in self.leaf_inds:
-            leaf = self.node_list[i]
+            leaf = self.node_dict[str(i)]
             if not(leaf.is_stopped):
                 return False
 
@@ -97,6 +97,10 @@ class Tree(Node):
         leaf has samlpes with only a single unique class label.
         """
         
+        # in order to give unique keys to the nodes, start by a value larger
+        # than the existing keys in the node dictionary
+        max_key = max(map(int, self.node_dict.keys()))
+        
         # start adding children until full purity is obtained
         while not(self.check_full_stopped()):
             
@@ -107,7 +111,7 @@ class Tree(Node):
             
             for i in self.leaf_inds:
                 
-                leaf = self.node_list[i]
+                leaf = self.node_dict[str(i)]
                 
                 if not(leaf.is_stopped):
                     
@@ -136,9 +140,9 @@ class Tree(Node):
                     is_left_stopped = len(np.unique(left_labels))==1
                     is_right_stopped = len(np.unique(right_labels))==1
                     # children:
-                    left_child = Node(left_dat, left_labels, is_left_stopped, 
+                    left_child = Node(max_key+1, left_dat, left_labels, is_left_stopped, 
                                       left_reach_prob, left_priors, rules=left_rules, parent=i)
-                    right_child = Node(right_dat, right_labels, is_right_stopped, 
+                    right_child = Node(max_key+2, right_dat, right_labels, is_right_stopped, 
                                        right_reach_prob, right_priors, rules=right_rules, parent=i)
                     
                     # updating the tree structure
@@ -146,12 +150,15 @@ class Tree(Node):
                     # mark the index of the current leaf to throw it out from the leaf-list
                     inds_to_remove += [i]
                     # add the new leaves into the leaf-list
-                    current_nodes_cnt = len(self.node_list)
-                    inds_to_add += [current_nodes_cnt, current_nodes_cnt+1]
-                    self.node_list += [left_child, right_child]
+                    self.node_dict.update({str(max_key+1): left_child, str(max_key+2): right_child})
+                    inds_to_add += [max_key+1, max_key+2]
                     # add the new nodes as the children of the old leaf
-                    leaf.left = current_nodes_cnt
-                    leaf.right = current_nodes_cnt + 1
+                    leaf.left = max_key + 1
+                    leaf.right = max_key + 2
+                    
+                    # update maximum key
+                    max_key += 2
+                    
             
             # updating the leaf list
             for j in inds_to_remove:
@@ -167,7 +174,7 @@ class Tree(Node):
         
         misclass_rate = 0.
         for i in self.leaf_inds:
-            leaf = self.node_list[i]
+            leaf = self.node_dict[str(i)]
             misclass_rate += leaf.reach_prob * leaf.compute_error_rate()
         
         return misclass_rate
@@ -186,7 +193,7 @@ class Tree(Node):
         leaf_count = 0
         
         # check if the given root is a leaf itself
-        sub_root = self.node_list[node_index]
+        sub_root = self.node_dict[str(node_index)]
         if sub_root.left:
             rem_nodes = [sub_root.left, sub_root.right]
         else:
@@ -198,7 +205,8 @@ class Tree(Node):
         while len(rem_nodes)>0:
             # the remaining nodes after this iteration will be stored in new_nodes
             new_nodes = []
-            for node in rem_nodes:
+            for key in rem_nodes:
+                node = self.node_dict[str(key)]
                 if node.left:
                     new_nodes += [node.left, node.right]
                 else:
@@ -220,8 +228,8 @@ class Tree(Node):
         while len(not_visited)>0:
             curr_leaf_ind = not_visited[0]
             # check if the parent has another leaf child
-            parent_ind = self.node_list[curr_leaf_ind].parent
-            parent = self.node_list[parent_ind]
+            parent_ind = self.node_dict[str(curr_leaf_ind)].parent
+            parent = self.node_dict[str(parent_ind)]
             other_child_ind = parent.right if curr_leaf_ind==parent.left \
                 else parent.left
             
@@ -235,3 +243,33 @@ class Tree(Node):
                 not_visited.remove(curr_leaf_ind)
         
         return siblings
+    
+    def cut_useless_leaves(self):
+        """Cutting those leaves whose elimination does not increase the error rate
+        """
+        
+        # only consider the siblings among the leaves
+        sibs = self.leaf_siblings()
+        
+        # check if the error rate of siblings' parents are equal to the average
+        # of their own errors 
+        sibs_to_remove = []
+        for i in range(len(sibs)):
+            leaves = sibs[i]
+            common_parent = self.node_dict[str(leaves[0])]
+            parent_rate = common_parent.compute_error_rate()
+            childs = [self.node_dict[str(leaves[0])], 
+                      self.node_dict[str(leaves[1])]]
+            own_rates = [childs[0].compute_error_rate()*childs[0].reach_prob,
+                         childs[1].compute_error_rate()*childs[1].reach_prob]
+            av_rate = sum(own_rates) / 2.
+            if parent_rate == av_rate:
+                sibs_to_remove += sibs[i]
+            
+        # delete those marked to have same average errors with their parents
+        for i in sorted(sibs_to_remove, reverse=True):
+            del self.node_dict[str(i)]
+            self.leaf_inds.remove(i)
+        
+        
+            
