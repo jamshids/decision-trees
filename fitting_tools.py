@@ -125,11 +125,11 @@ def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, selected_feature):
         # left
         nj = left_labels==symbols[j]
         if np.any(nj):
-            left_priors[j] = np.sum(nj) / len(left_labels)
+            left_priors[j] = np.sum(nj) / float(len(left_labels))
         # right
         nj = right_labels==symbols[j]
         if np.any(nj):
-            right_priors[j] = np.sum(nj) / len(right_labels)
+            right_priors[j] = np.sum(nj) / float(len(right_labels))
 
     
     # probability of reaching left node (x<=theta)

@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+import pdb
 import fitting_tools
 
 class Node:
@@ -48,7 +49,7 @@ class Tree(Node):
         class_info[0,:] = np.unique(labels)
         # comuting pies:
         for i in range(c):
-            class_info[1,i] = np.sum(labels==class_info[0,i]) / len(labels)
+            class_info[1,i] = np.sum(labels==class_info[0,i]) / float(len(labels))
         # --------------------------------------
         # now assigning the min-max (rules of the root) 
         if dat.ndim==1:
@@ -64,7 +65,7 @@ class Tree(Node):
         # --------------------------------------
         # properties:
         self.node_list = [Node(dat, labels, is_stopped, 1., class_info[1,:], rules)]
-        self.leaves = [self.node_list[0]]
+        self.leaf_inds = [0]
         self.symbols = class_info[0,:]
         self.kernel_CDF = kernel_CDF
         
@@ -74,7 +75,8 @@ class Tree(Node):
         Checking if all the leaves of the tree are stopped
         """
 
-        for leaf in self.leaves:
+        for i in self.leaf_inds:
+            leaf = self.node_list[i]
             if not(leaf.is_stopped):
                 return False
 
@@ -95,12 +97,13 @@ class Tree(Node):
         while not(self.check_full_stopped()):
             
             # go through all the leaves and split the non-stopped ones
-            leaf_list = copy.deepcopy(self.leaves)
+            #leaf_list = copy.deepcopy(self.leaves)
             inds_to_remove = []
+            inds_to_add    = []
             
-            for i in range(len(self.leaves)):
+            for i in self.leaf_inds:
                 
-                leaf = self.leaves[i]
+                leaf = self.node_list[i]
                 
                 if not(leaf.is_stopped):
                     
@@ -117,7 +120,7 @@ class Tree(Node):
                     left_priors, right_priors = probs[:2]
                     left_reach_prob = probs[2] * leaf.reach_prob
                     right_reach_prob = probs[3] * leaf.reach_prob
-
+                    
                     # new rules:
                     left_rules, right_rules = fitting_tools.update_rules(best_split, selected_feature, leaf)
                     # new data
@@ -130,29 +133,77 @@ class Tree(Node):
                     is_right_stopped = len(np.unique(right_labels))==1
                     # children:
                     left_child = Node(left_dat, left_labels, is_left_stopped, 
-                                      left_reach_prob, left_priors, left_rules, leaf)
+                                      left_reach_prob, left_priors, rules=left_rules, parent=leaf)
                     right_child = Node(right_dat, right_labels, is_right_stopped, 
-                                       right_reach_prob, right_priors, right_rules, leaf)
+                                       right_reach_prob, right_priors, rules=right_rules, parent=leaf)
                     
                     # updating the tree structure
                     # ---------------------------
                     # mark the index of the current leaf to throw it out from the leaf-list
                     inds_to_remove += [i]
                     # add the new nodes as the children of the old leaf
-                    node_index = self.node_list.index(leaf)
-                    leaf.left_child = left_child
-                    leaf.right_child = right_child
-                    self.node_list[node_index] = leaf
+                    leaf.left = left_child
+                    leaf.right = right_child
                     # add the new leaves into the leaf-list
-                    leaf_list += [left_child, right_child]
+                    current_nodes_cnt = len(self.node_list)
+                    inds_to_add += [current_nodes_cnt, current_nodes_cnt+1]
                     self.node_list += [left_child, right_child]
-                
-           
-            leaf_list = np.delete(np.array(leaf_list), inds_to_remove).tolist()
             
-            # after going through all the leaves, update the leaf list
-            self.leaves = leaf_list
+            # updating the leaf list
+            for j in inds_to_remove:
+                self.leaf_inds.remove(j)
+            self.leaf_inds += inds_to_add
             
             #pdb.set_trace()
-
         
+    def total_misclass_rate(self):
+        """Computing misclassification of the tree as the exected value of
+        error rates of the leaves
+        """
+        
+        misclass_rate = 0.
+        for i in self.leaf_inds:
+            leaf = self.node_list[i]
+            misclass_rate += leaf.reach_prob * leaf.compute_error_rate()
+        
+        return misclass_rate
+    
+    def subtree_props(self, node_index):
+        """Misclassification of a subtree in the tree
+        
+        The subtree is specified by its root, which is in turn, given by
+        the index in the list of all nodes. Based on the notation from
+        Breiman's book, the subtree is shown by :math:`T_t`.
+        """
+        
+        # initializing the subtree error rate
+        sub_misclass_rate = 0.
+        # initializing number of leaves in the subtree
+        leaf_count = 0
+        
+        # check if the given root is a leaf itself
+        sub_root = self.node_list[node_index]
+        if sub_root.left:
+            rem_nodes = [sub_root.left, sub_root.right]
+        else:
+            sub_misclass_rate = sub_root.reach_prob * sub_root.compute_error_rate()
+            return sub_misclass_rate, 1
+        
+        # descending from the given index, and consider adding an error 
+        # rate only when a leaf is encountered
+        while len(rem_nodes)>0:
+            # the remaining nodes after this iteration will be stored in new_nodes
+            new_nodes = []
+            for node in rem_nodes:
+                if node.left:
+                    new_nodes += [node.left, node.right]
+                else:
+                    sub_misclass_rate += node.reach_prob*node.compute_error_rate()
+                    leaf_count += 1
+            
+            rem_nodes = new_nodes
+        
+        return sub_misclass_rate, leaf_count
+    
+                
+            
