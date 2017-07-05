@@ -9,7 +9,7 @@ class Node:
     """
 
     def __init__(self, key, dat, labels, is_stopped, reach_prob, class_prob,
-                 rules=None, parent=None, left_child=None, right_child=None):
+                 rule=None, parent=None, left_child=None, right_child=None):
         """
         Node constructor
         
@@ -20,7 +20,7 @@ class Node:
         self.left = left_child
         self.right = right_child
         self.parent = parent
-        self.rules = rules
+        self.rule = rule
         self.dat = dat
         self.labels = labels
         self.is_stopped = is_stopped
@@ -55,24 +55,31 @@ class Tree(Node):
         for i in range(c):
             class_info[1,i] = np.sum(labels==class_info[0,i]) / float(len(labels))
         # --------------------------------------
-        # now assigning the min-max (rules of the root) 
-        if dat.ndim==1:
-            a,b = (dat.min(), dat.max())
-            rules = {'0': (a,b)}
-        elif dat.ndim==2:
-            a,b = np.min(dat, axis=1), np.max(dat, axis=1)
-            rules = {}
-            for i in range(len(a)):
-                rules.update({str(i): (a[i], b[i])})
-        else:
-            raise ValueError('Dimension of the input data should not be higher than 2')
-        # --------------------------------------
         # properties:
-        self.node_dict = {'0': Node(0, dat, labels, is_stopped, 1., class_info[1,:], rules)}
+        self.node_dict = {'0': Node(0, dat, labels, is_stopped, 1., class_info[1,:])}
         self.leaf_inds = [0]
         self.symbols = class_info[0,:]
         self.kernel_CDF = kernel_CDF
+    
+    def predict(self, X):
+        """Predicting class label of a given sample probabilistically
+        """
         
+        if X.ndim != self.dat.ndim:
+            raise ValueError('Dimensionality of test and training arrays must' + 
+                             ' be the same')
+        
+        n = len(X) if X.ndim==1 else X.shape[1]
+        
+        for i in range(n):
+            x = X[i] if X.ndim==1 else X[:,i]
+            # start from the root and keep following the rules until we reach a leaf
+            curr_node = 0
+            while curr_node not in self.leaf_inds:
+                node_obj = self.node_dict[str(curr_node)]
+                ruled_feat = node_obj.rule
+            
+            
     
     def check_full_stopped(self):
         """
@@ -129,21 +136,23 @@ class Tree(Node):
                     left_reach_prob = probs[2] * leaf.reach_prob
                     right_reach_prob = probs[3] * leaf.reach_prob
                     
-                    # new rules:
-                    left_rules, right_rules = fitting_tools.update_rules(best_split, selected_feature, leaf)
-                    # new data
-                    left_dat, left_labels = fitting_tools.filter_data(leaf.dat, leaf.labels, 
-                                                        left_rules, selected_feature)
-                    right_dat, right_labels = fitting_tools.filter_data(leaf.dat, leaf.labels, 
-                                                          right_rules, selected_feature)
+                    # new rule dictionary
+                    leaf.rule = {str(selected_feature): best_split}
+                    # data and labels for the left/right children
+                    d = 1 if leaf.dat.ndim==1 else leaf.dat.shape[0]
+                    left_inds, right_inds = fitting_tools.rule_divide(leaf.dat, leaf.rule)
+                    left_dat = leaf.dat[left_inds] if d==1 else leaf.dat[:,left_inds]
+                    left_labels = leaf.labels[left_inds]
+                    right_dat = leaf.dat[right_inds] if d==1 else leaf.dat[:,right_inds]
+                    right_labels = leaf.labels[right_inds]
                     # stop the new leaves or not?
                     is_left_stopped = len(np.unique(left_labels))==1
                     is_right_stopped = len(np.unique(right_labels))==1
-                    # children:
+                    # children nodes
                     left_child = Node(max_key+1, left_dat, left_labels, is_left_stopped, 
-                                      left_reach_prob, left_priors, rules=left_rules, parent=i)
+                                      left_reach_prob, left_priors, parent=i)
                     right_child = Node(max_key+2, right_dat, right_labels, is_right_stopped, 
-                                       right_reach_prob, right_priors, rules=right_rules, parent=i)
+                                       right_reach_prob, right_priors, parent=i)
                     
                     # updating the tree structure
                     # ---------------------------
@@ -341,6 +350,7 @@ class Tree(Node):
         # start by putting the current tree at the 
         seq_tree = [copy.deepcopy(self)]
         T = copy.deepcopy(self)
+        alphas = [0.]
         
         # continue till the root is reached
         while len(T.node_dict)>1:
@@ -370,6 +380,6 @@ class Tree(Node):
             T.remove_subtree(int(nodes[weakest_link]))
             
             seq_tree += [copy.deepcopy(T)]
-            #pdb.set_trace()
+            alphas += [min(links)]
             
-        return seq_tree
+        return seq_tree, alphas

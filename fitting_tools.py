@@ -25,10 +25,7 @@ def split_features(leaf, kernel_CDF):
     # do the 1D optimization (inside the intervals permitted by the rules)
     for i in range(d):
         X = leaf.dat[i,:] if d>1 else leaf.dat
-        
-        bracket = (max(leaf.rules[str(i)][0], X.min()),
-                   min(leaf.rules[str(i)][1], X.max()))
-
+        bracket = (X.min(), X.max())
         thetas[i], scores[i] = optimizations.bisection_min(objectives[i], bracket)
         
     return thetas, scores
@@ -68,37 +65,25 @@ def update_rules(new_split, selected_feature, leaf):
         
     return left_rules, right_rules
 
-def filter_data(dat, labels, rules, selected_feature=None):
+def rule_divide(dat, rule):
     """
-    Filering the data according to a given set of rules
+    Divide a given data into two parts based on a given rule
     """
     if dat.ndim==1:
-        (a,b) = rules['0']
-        inds_to_del = np.where(np.logical_or(dat<a, b<dat))
-        # filtering data and labels
-        dat = np.delete(dat, inds_to_del)
-        labels = np.delete(labels, inds_to_del)
+        theta = rule['0']
+        left_inds = np.where(dat <= theta)
+        right_inds = np.where(dat > theta)
         
     elif dat.ndim==2:
-        # if a feature is given, then only use that for filtering
-        if selected_feature:
-            (a,b) = rules[str(selected_feature)]
-            X = dat[selected_feature,:]
-            inds_to_del = np.where(np.logical_or(X<a, b<X))
-            # filtering data and labels
-            dat = np.delete(dat, inds_to_del, 1)
-            labels = np.delete(labels, inds_to_del)
-        # if not, look at all the feature one-by-one
-        else:
-            for i in range(dat.shape[0]):
-                (a,b) = rules[str(i)]
-                X = dat[i,:]
-                inds_to_del = np.where(np.logical_or(X<a, b<X))
-                # filtering data and labels
-                dat = np.delete(dat, inds_to_del, 1)
-                labels = np.delete(labels, inds_to_del)
+        if len(rule.keys())>1:
+            raise ValueError('Number of keys in a rule dictionary' + 
+                             ' should always be 1')
+        div_feature = rule.keys()
+        theta = rule[div_feature]
+        left_inds = np.where(dat[int(div_feature),:] <= theta)
+        right_inds = np.where(dat[int(div_feature),:] > theta)
     
-    return dat, labels
+    return left_inds, right_inds
 
 def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, selected_feature):
     """Given that we are on a specific node, computing the probability of
