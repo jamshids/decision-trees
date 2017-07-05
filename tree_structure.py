@@ -180,28 +180,33 @@ class Tree(Node):
         return misclass_rate
     
     def subtree_props(self, node_index):
-        """Misclassification of a subtree in the tree
+        """Some properties of a subtree, including misclassification rate
+        of the sub-tree and the list of its leaves (terminal nodes)
         
         The subtree is specified by its root, which is in turn, given by
         the index in the list of all nodes. Based on the notation from
         Breiman's book, the subtree is shown by :math:`T_t`.
         """
         
+        if str(node_index) not in self.node_dict.keys():
+            print 'Node %d is not a node of the tree..' % node_index
+            return
+        
         # initializing the subtree error rate
         sub_misclass_rate = 0.
-        # initializing number of leaves in the subtree
-        leaf_count = 0
+        # node object of the sub-tree root
+        sub_root = self.node_dict[str(node_index)]
         
         # check if the given root is a leaf itself
-        sub_root = self.node_dict[str(node_index)]
-        if sub_root.left:
-            rem_nodes = [sub_root.left, sub_root.right]
-        else:
+        if node_index in self.leaf_inds:
             sub_misclass_rate = sub_root.reach_prob * sub_root.compute_error_rate()
-            return sub_misclass_rate, 1
+            return sub_misclass_rate, [node_index]
+        else:
+            rem_nodes = [sub_root.left, sub_root.right]
         
         # descending from the given index, and consider adding an error 
         # rate only when a leaf is encountered
+        leaf_list = list()
         while len(rem_nodes)>0:
             # the remaining nodes after this iteration will be stored in new_nodes
             new_nodes = []
@@ -211,13 +216,60 @@ class Tree(Node):
                     new_nodes += [node.left, node.right]
                 else:
                     sub_misclass_rate += node.reach_prob*node.compute_error_rate()
-                    leaf_count += 1
+                    leaf_list += [key]
             
             rem_nodes = new_nodes
         
-        return sub_misclass_rate, leaf_count
+        return sub_misclass_rate, leaf_list
     
-                
+    def remove_subtree(self, node_index):
+        """Removing a subtree rooted at a given node
+        
+        In order to remove the sub-tree, we start from the given node and go
+        down until we encounter all the nodes of the sub-tree. Then, all the
+        encountered nodes will be removed from the tree.
+        
+        Note that the removed nodes should be removed from two parts:
+        node dictionary of the tree, leaf list of the tree (if they are
+        terminal nodes) 
+        """
+        
+        node_list = list()
+        if str(node_index) not in self.node_dict.keys():
+            print 'Node %d is not a node of the tree..' % node_index
+            return
+        elif node_index in self.leaf_inds:
+            print 'Node %d is a leaf, nothing to prune..' % node_index
+            return
+        
+        node_list = list()
+        root_node = self.node_dict[str(node_index)]
+        rem_nodes = [root_node.left, root_node.right]
+        while len(rem_nodes)>0:
+            # going through the remaining nodes one-by-one and add them 
+            # into the next level rem_nodes
+            new_rem_nodes = list()
+            for node_ind in rem_nodes:
+                node_list += [node_ind]
+                node_obj = self.node_dict[str(node_ind)]
+                if node_obj.left:
+                    new_rem_nodes += [node_obj.left, node_obj.right]
+            # take the next level of remaining nodes
+            rem_nodes = new_rem_nodes
+            
+        # after encountering all the nodes, remove them from the tree
+        for node_ind in node_list:
+            del self.node_dict[str(node_ind)]
+            if node_ind in self.leaf_inds:
+                self.leaf_inds.remove(node_ind)
+        
+        # finally, the subtree's root should become a leaf itself
+        root_node.left = None
+        root_node.right = None
+        self.leaf_inds += [node_index]
+        
+        
+                    
     def leaf_siblings(self):
         """Returning those leaves with the same parents
         """
@@ -256,7 +308,8 @@ class Tree(Node):
         sibs_to_remove = []
         for i in range(len(sibs)):
             leaves = sibs[i]
-            common_parent = self.node_dict[str(leaves[0])]
+            common_parent = self.node_dict[str(self.node_dict[str(leaves[0])]
+                                               .parent)]
             parent_rate = common_parent.compute_error_rate()
             childs = [self.node_dict[str(leaves[0])], 
                       self.node_dict[str(leaves[1])]]
@@ -271,5 +324,52 @@ class Tree(Node):
             del self.node_dict[str(i)]
             self.leaf_inds.remove(i)
         
+        print "%d siblings have been removed from the tree." % len(sibs_to_remove)
+    
+    def cost_complexity_seq(self):
+        """Generating a sequence of trees, using cost-complexity algorithm
         
+        The generated sequence starts with the tree itself and ends with the root
+        (i.e., a tree with a single node which is the root of the given tree). 
+        The sequence is generated such that the i-th tree is a sub-tree of the 
+        (i-1)-th tree.
+        """
+        
+        # first cut useless leaves of the tree
+        self.cut_useless_leaves()
+        
+        # start by putting the current tree at the 
+        seq_tree = [copy.deepcopy(self)]
+        T = copy.deepcopy(self)
+        
+        # continue till the root is reached
+        while len(T.node_dict)>1:
+            # compute the critical value for the nodes
+            nodes = T.node_dict.keys()
+            links = np.ones(len(nodes))
+            for i in range(len(nodes)):
+                if int(nodes[i]) in T.leaf_inds:
+                    links[i] = np.inf
+                else:
+                    node_error = T.node_dict[nodes[i]].compute_error_rate()
+                    sub_error, sub_leaves = self.subtree_props(int(nodes[i]))
+                    
+                    if sub_error > node_error:
+                        raise ValueError('Something went wrong: error rate of' +
+                                         ' a subtree cannot be larger than its root')
+                    elif len(sub_leaves)==1:
+                        #pdb.set_trace()
+                        raise ValueError('Somethin went wrong: number of leaves of' +
+                                         'a subtree rooted at a non-leaf node' +
+                                         ' cannot be 1')
+                    
+                    links[i] = (node_error - sub_error) / float(len(sub_leaves) - 1)
+                
+            # remove the sub-tree with the weakest link
+            weakest_link = np.argmin(links)
+            T.remove_subtree(int(nodes[weakest_link]))
             
+            seq_tree += [copy.deepcopy(T)]
+            #pdb.set_trace()
+            
+        return seq_tree
