@@ -2,7 +2,10 @@ import numpy as np
 import objective_builders
 import optimizations
 import pdb
+import copy
+import tree_structure
 from objective_builders import normal_CDF
+from sklearn.model_selection import KFold, StratifiedKFold
 
 def split_features(leaf, kernel_CDF):
     """
@@ -123,3 +126,97 @@ def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, selected_feature):
     
     
     return left_priors, right_priors, left_reach_prob, right_reach_prob
+
+def CV_prune(T, n_folds):
+    """Pruning a given (full tree) to the right size using cross validation
+    """
+
+    # partitioning the data into several folds
+    total_labels = T.node_dict['0'].labels
+    n = len(total_labels)
+    total_dat = T.node_dict['0'].dat
+    dim = total_dat.ndim
+    cv_kfold = StratifiedKFold(n_splits = n_folds)
+    train_inds, test_inds = list(), list()
+    for trains, tests in cv_kfold.split(total_dat, total_labels):
+        train_inds += [trains]
+        test_inds += [tests]
+
+    # generating the tree sequences for all the folds and the whole 
+    # training data set
+    all_alphas = list()
+    all_seqs = list()
+    seq, alphas = T.cost_complexity_seq()
+    all_seqs += [copy.deepcopy(seq)]
+    all_alphas += [copy.deepcopy(alphas)]
+    
+    # building tree sequences for each CV fold
+    for i in range(n_folds):
+        if dim==1:
+            train_dat = total_dat[train_inds[i]]
+        else:
+            train_dat = total_dat[:,train_inds[i]]
+        train_labels = total_labels[train_inds[i]]
+        
+        # create a full tree based on the training folds
+        cv_T = tree_structure.Tree(train_dat, train_labels, 
+                                   T.kernel_CDF)
+        cv_T.fit_full_tree()
+        print "Fitting the full tree for CV %d" % i
+        
+        # generate the pruned sequence of subtrees 
+        seq, alphas = cv_T.cost_complexity_seq()
+        all_seqs += [copy.deepcopy(seq)]
+        all_alphas += [copy.deepcopy(alphas)]
+        
+    # scoring for each subtrees of the main tree using 
+    # cross-validation subtrees
+    scores = np.zeros(len(all_seqs[0]))
+    c = len(np.unique(T.symbols))
+    for i in range(len(scores)-1):
+        # alpha' will be the geometric mean of the current 
+        # alpha value and its consequent one
+        alpha_pr = np.sqrt(all_alphas[0][i]*all_alphas[0][i+1])
+        
+        # Among subtrees of a specific CV fold, choose the one 
+        # whose alpha-value is the largest one that is less than
+        # alpha' and then predict class labels of the test fold 
+        # over that subtree
+        misclasses_mat = np.zeros((c, n_folds))
+        for cv_ind in range(n_folds):
+            valid_alphas = all_alphas[1+cv_ind] <= alpha_pr
+            chosen_alpha = np.argmax(np.array(all_alphas[1+cv_ind])
+                                     [valid_alphas])
+            chosen_sub = all_seqs[1+cv_ind][chosen_alpha]
+            #  throw in the tests into the chosen subtree
+            if dim==1:
+                test_dat = total_dat[test_inds[cv_ind]]
+            else:
+                test_dat = total_dat[:, test_inds[cv_ind]]
+            test_labels = total_labels[test_inds[cv_ind]]
+            
+            _, predictions = chosen_sub.posteriors_predict(test_dat)
+            #pdb.set_trace()
+            for j in range(c):
+                class_inds = test_labels==T.symbols[j]
+                misclasses_mat[j,cv_ind]=np.sum(predictions[class_inds] 
+                                                != j) 
+        
+        # compute total misclassifications
+        scores[i] = np.sum(misclasses_mat) / float(n)
+        
+    # score of the root
+    scores[-1] = all_seqs[0][-1].total_misclass_rate()
+    
+    # choosing the best subtree (with the prefernce of subtrees
+    # with higher alphas
+    all_best_subs = np.where(scores==np.min(scores))[0]
+    if len(all_best_subs)>1:
+        best_sub = np.sort(all_best_subs)[-1]
+    else:
+        best_sub = all_best_subs[0]
+    
+    # take the tree with minimum score
+    return scores, all_seqs[0][best_sub]
+            
+            

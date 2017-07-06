@@ -61,70 +61,6 @@ class Tree(Node):
         self.symbols = class_info[0,:]
         self.kernel_CDF = kernel_CDF
     
-    def extract_leaf(self, x):
-        """Leaf corresponding to a data sample will be extracted by followin the nodes
-        from the root until a leaf is encountered
-        """
-        
-        # start from the root
-        curr_node = 0
-        while curr_node not in self.leaf_inds:
-            node_obj = self.node_dict[str(curr_node)]
-            ruled_feat = node_obj.rule.keys()[0]
-            try:
-                theta = node_obj.rule[ruled_feat]
-            except:
-                raise ValueError('Something went wrong: the threshold of the ruled '+ 
-                                 'feature could not be read')
-            
-            # if the value of the ruled feature is greater than the threshol go to right
-            # otherwise go to the left
-            ruled_val = x[int(ruled_feat)] if hasattr(x,'__len__') else x
-            if ruled_val > theta:
-                curr_node = node_obj.right
-            else:
-                curr_node = node_obj.left
-            
-        return curr_node
-    
-    def compute_posterior(self, X):
-        """Predicting class label of a given sample probabilistically
-        """
-        
-        if X.ndim != self.node_dict['0'].dat.ndim:
-            raise ValueError('Dimensionality of test and training arrays must' + 
-                             ' be the same')
-        
-        # decide how many test data samples are given
-        dim = self.node_dict['0'].dat.ndim
-        if dim==1:
-            n = len(X)
-        elif X.ndim==1:
-            n = 1
-        else:
-            n = X.shape[1]
-        
-        # initializing probability matrix
-        c = len(self.symbols)
-        probs = np.zeros((c,n))
-        
-        # calculate posteriors for each sample one-by-one
-        for i in range(n):
-            if dim==1:
-                x = X[i]
-            elif X.ndim==1:
-                x = X
-            else:
-                x = X[:,i]
-
-            # extract the leaf corresponding to a this sample
-            leaf_ind = self.extract_leaf(x)
-            leaf = self.node_dict[str(leaf_ind)]
-            n_leaf = float(len(leaf.labels))
-            for j in range(c):
-                probs[j,i] = np.sum(leaf.labels==self.symbols[j])/n_leaf
-            
-        return probs
     
     def check_full_stopped(self):
         """
@@ -220,7 +156,75 @@ class Tree(Node):
             self.leaf_inds += inds_to_add
             
             #pdb.set_trace()
+            
+    def extract_leaf(self, x):
+        """Leaf corresponding to a data sample will be extracted by followin the nodes
+        from the root until a leaf is encountered
+        """
         
+        # start from the root
+        curr_node = 0
+        while curr_node not in self.leaf_inds:
+            node_obj = self.node_dict[str(curr_node)]
+            ruled_feat = node_obj.rule.keys()[0]
+            try:
+                theta = node_obj.rule[ruled_feat]
+            except:
+                raise ValueError('Something went wrong: the threshold of the ruled '+ 
+                                 'feature could not be read')
+            
+            # if the value of the ruled feature is greater than the threshol go to right
+            # otherwise go to the left
+            ruled_val = x[int(ruled_feat)] if hasattr(x,'__len__') else x
+            if ruled_val > theta:
+                curr_node = node_obj.right
+            else:
+                curr_node = node_obj.left
+            
+        return curr_node
+    
+    def posteriors_predict(self, X):
+        """Predicting class label of a given sample probabilistically
+        """
+        
+        if X.ndim != self.node_dict['0'].dat.ndim:
+            raise ValueError('Dimensionality of test and training arrays must' + 
+                             ' be the same')
+        
+        # decide how many test data samples are given
+        dim = self.node_dict['0'].dat.ndim
+        if dim==1:
+            n = len(X)
+        elif X.ndim==1:
+            n = 1
+        else:
+            n = X.shape[1]
+        
+        # initializing probability matrix
+        c = len(self.symbols)
+        probs = np.zeros((c,n))
+        
+        # calculate posteriors for each sample one-by-one
+        for i in range(n):
+            if dim==1:
+                x = X[i]
+            elif X.ndim==1:
+                x = X
+            else:
+                x = X[:,i]
+
+            # extract the leaf corresponding to a this sample
+            leaf_ind = self.extract_leaf(x)
+            leaf = self.node_dict[str(leaf_ind)]
+            n_leaf = float(len(leaf.labels))
+            for j in range(c):
+                probs[j,i] = np.sum(leaf.labels==self.symbols[j])/n_leaf
+            
+        # predict class labels based on the computed posteriors
+        class_predicts = np.argmax(probs, axis=0)
+            
+        return probs, class_predicts
+    
     def total_misclass_rate(self):
         """Computing misclassification of the tree as the exected value of
         error rates of the leaves
@@ -428,3 +432,5 @@ class Tree(Node):
             alphas += [min(links)]
             
         return seq_tree, alphas
+    
+        
