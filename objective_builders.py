@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import norm
 import pdb
+import copy
 
 def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
     """
@@ -52,17 +53,66 @@ def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
         marginal_CDF = lambda theta: kernel_CDF(uncond_sigma, X, theta)
         
         # constructing CDF of class-conditional KDE
-        class_marginals = [0]*c   # (list initialization)
+        # CAUTIONS:
+        # I could not use this module because the following for-loop.
+        # The array of functions get global variables as "fixed" input arguments.
+        # However, these global variables change at each iteration to supply marginal
+        # CDF of each class with different arguments. The problem is when these
+        # global variables change, this change happens for all the arguments, since
+        # these arguemnts (for all classes) are looking at the same global variable
+        # and when it changes, everone will change.
+        class_marginals = [0]*(c+1)   # (list initialization)
         for j in range(c):
-            class_marginals[j] = lambda theta: kernel_CDF(cond_sigma, X[labels==symbols[j]], theta)
+            class_marginals[j+1] = lambda theta: kernel_CDF(cond_sigma, X[labels==symbols[j]], theta)
             
         # constructing the overall objective of this i-th feature:
+        
         J_i = lambda theta: np.sum(pies*np.array([f(theta)*np.log(marginal_CDF(theta)/f(theta)) + 
                                                   (1-f(theta))*np.log((1-marginal_CDF(theta))/(1-f(theta))) 
                                                   for f in class_marginals]))
         objectives[i] = J_i
         
     return objectives
+
+def KDE_entropy(dat, labels, uncond_sigma, cond_sigma, 
+                      theta, kernel_CDF, priors=None):
+    """Function for calculating the scalar entropy-based objective function at a fixed theta
+    
+    The data should be a 1-D array
+    """
+    
+    symbols = np.unique(labels)
+    c = len(symbols)
+    n = len(labels)
+    
+    # Initializing the objective value to zero and adding the terms 1-by-1
+    J_theta = 0.
+    
+    # un-conditional marginal CDF
+    marginal_CDF = kernel_CDF(uncond_sigma, dat, theta)
+    # class-conditional marginal CDF
+    for j in range(c):
+        class_marginal = kernel_CDF(cond_sigma, dat[labels==symbols[j]], theta)
+        if not(priors):
+            prior = np.sum(labels==symbols[j]) / float(n)
+        else:
+            prior = priors[j]
+            
+        # taking care of being 1. or 0.
+        if class_marginal==1.:
+            class_marginal -= 1e-6
+        elif class_marginal==0.:
+            class_marginal += 1e-6
+            
+        # computing value of the corresponding term
+        class_term = prior*(class_marginal*np.log(marginal_CDF/class_marginal) + \
+            (1.-class_marginal)*np.log((1-marginal_CDF)/(1-class_marginal)))
+        
+        # adding the term's value to the objective
+        J_theta += class_term
+        
+    return J_theta
+
 
 def normal_CDF(sigma, dat, theta):
     """

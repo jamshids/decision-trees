@@ -1,4 +1,5 @@
 import numpy as np
+from objective_builders import KDE_entropy as OBJ_EVAL
 
 def bisection_min(J_theta, bracket):
     
@@ -34,3 +35,47 @@ def bisection_min(J_theta, bracket):
             x_m, J_m = (x_r, J_r)
         
     return x_m, J_m
+
+def minimize_KDE_entropy(dat, labels, uncond_sigma, cond_sigma,
+                         kernel_CDF, priors=None):
+    """Function for running bisection-method to find a local minimum
+    of the entropy-based impurity objective
+    """
+    
+    # the initial bracket is chosen to be minimum and maximum value of
+    # the given scalar data
+    (a, b) = (dat.min(), dat.max())
+    (J_a, J_b) = (OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, a, kernel_CDF), 
+                  OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, b, kernel_CDF))
+    
+    # central mid-points
+    x_m = (a+b) / 2.
+    J_m = OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_m, kernel_CDF)
+    
+    tol = 1e-6
+    
+    # repeat bisectioning until the length of the bracket is small enough
+    while(np.abs(a-b) > tol):
+
+        # left and right mid-points
+        x_l = (a + x_m) / 2.
+        x_r = (b + x_m) / 2.
+        J_r, J_l = (OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_r, kernel_CDF), 
+                    OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_l, kernel_CDF))
+        
+        J_min = np.min([J_a, J_b, J_m, J_r, J_l])
+        
+        # updating
+        if (J_min == J_a) | (J_min == J_l):
+            b, J_b = (x_m, J_m)            
+            x_m, J_m = (x_l, J_l)
+        elif J_min == J_m:
+            a,b = (x_l, x_r)
+            J_a, J_b = (J_l, J_r)
+        elif (J_min == J_b) | (J_min == J_r):
+            a, J_a = (x_m, J_m)            
+            x_m, J_m = (x_r, J_r)
+            
+    return x_m, J_m
+    
+    

@@ -23,13 +23,14 @@ def split_features(leaf, kernel_CDF):
     thetas = np.zeros(d)
     
     # objective builder
-    objectives = objective_builders.KDE_1D(leaf.dat, leaf.labels, kernel_CDF)
+    #objectives = objective_builders.KDE_1D(leaf.dat, leaf.labels, kernel_CDF)
     
     # do the 1D optimization (inside the intervals permitted by the rules)
     for i in range(d):
         X = leaf.dat[i,:] if d>1 else leaf.dat
-        bracket = (X.min(), X.max())
-        thetas[i], scores[i] = optimizations.bisection_min(objectives[i], bracket)
+        thetas[i], scores[i] = optimizations.minimize_KDE_entropy(X, leaf.labels, 
+                                                                  .5, .5, kernel_CDF)
+    #pdb.set_trace()
         
     return thetas, scores
 
@@ -74,17 +75,17 @@ def rule_divide(dat, rule):
     """
     if dat.ndim==1:
         theta = rule['0']
-        left_inds = np.where(dat <= theta)
-        right_inds = np.where(dat > theta)
+        left_inds = np.where(dat <= theta)[0]
+        right_inds = np.where(dat > theta)[0]
         
     elif dat.ndim==2:
         if len(rule.keys())>1:
             raise ValueError('Number of keys in a rule dictionary' + 
                              ' should always be 1')
         div_feature = rule.keys()
-        theta = rule[div_feature]
-        left_inds = np.where(dat[int(div_feature),:] <= theta)
-        right_inds = np.where(dat[int(div_feature),:] > theta)
+        theta = rule[div_feature[0]]
+        left_inds = np.where(dat[int(div_feature[0]),:] <= theta)[0]
+        right_inds = np.where(dat[int(div_feature[0]),:] > theta)[0]
     
     return left_inds, right_inds
 
@@ -97,7 +98,7 @@ def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, selected_feature):
     
     # the data restricted to the selecte feature
     d = 1 if leaf.dat.ndim==1 else leaf.dat.shape[0]
-    X = leaf.dat[selecte_feature,:] if d>1 else leaf.dat
+    X = leaf.dat[selected_feature,:] if d>1 else leaf.dat
 
     # piors
     left_priors = np.zeros(len(symbols))
@@ -138,7 +139,7 @@ def CV_prune(T, n_folds):
     dim = total_dat.ndim
     cv_kfold = StratifiedKFold(n_splits = n_folds)
     train_inds, test_inds = list(), list()
-    for trains, tests in cv_kfold.split(total_dat, total_labels):
+    for trains, tests in cv_kfold.split(np.transpose(total_dat), total_labels):
         train_inds += [trains]
         test_inds += [tests]
 
