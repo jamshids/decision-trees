@@ -74,8 +74,8 @@ def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
         
     return objectives
 
-def KDE_entropy(dat, labels, uncond_sigma, cond_sigma, 
-                      theta, kernel_CDF, priors=None):
+def KDE_entropy(dat, labels, theta, kernel_CDF,
+                uncond_sigma=None, cond_sigma=None, priors=None):
     """Function for calculating the scalar entropy-based objective function at a fixed theta
     
     The data should be a 1-D array
@@ -89,10 +89,23 @@ def KDE_entropy(dat, labels, uncond_sigma, cond_sigma,
     J_theta = 0.
     
     # un-conditional marginal CDF
+    if not(uncond_sigma):
+        if n>1:
+            uncond_sigma = 1.06*np.std(dat)*n**(-1/5.)
+        else:
+            uncond_sigma = 1.
     marginal_CDF = kernel_CDF(uncond_sigma, dat, theta)
     # class-conditional marginal CDF
     for j in range(c):
-        class_marginal = kernel_CDF(cond_sigma, dat[labels==symbols[j]], theta)
+        class_dat = dat[labels==symbols[j]]
+        if not(cond_sigma):
+            if len(class_dat)>1:
+                cond_sigma = 1.06*np.std(class_dat)*len(class_dat)**(-1/5.)
+            else:
+                cond_sigma = 1.
+            
+        class_marginal = kernel_CDF(cond_sigma, class_dat, theta)
+        
         if not(priors):
             prior = np.sum(labels==symbols[j]) / float(n)
         else:

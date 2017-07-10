@@ -36,8 +36,8 @@ def bisection_min(J_theta, bracket):
         
     return x_m, J_m
 
-def minimize_KDE_entropy(dat, labels, uncond_sigma, cond_sigma,
-                         kernel_CDF, priors=None):
+def minimize_KDE_entropy(dat, labels, kernel_CDF, uncond_sigma=None,
+                         cond_sigma=None, priors=None):
     """Function for running bisection-method to find a local minimum
     of the entropy-based impurity objective
     """
@@ -45,12 +45,12 @@ def minimize_KDE_entropy(dat, labels, uncond_sigma, cond_sigma,
     # the initial bracket is chosen to be minimum and maximum value of
     # the given scalar data
     (a, b) = (dat.min(), dat.max())
-    (J_a, J_b) = (OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, a, kernel_CDF), 
-                  OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, b, kernel_CDF))
+    (J_a, J_b) = (OBJ_EVAL(dat, labels, a, kernel_CDF, uncond_sigma, cond_sigma), 
+                  OBJ_EVAL(dat, labels, b, kernel_CDF, uncond_sigma, cond_sigma))
     
     # central mid-points
     x_m = (a+b) / 2.
-    J_m = OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_m, kernel_CDF)
+    J_m = OBJ_EVAL(dat, labels, x_m, kernel_CDF, uncond_sigma, cond_sigma)
     
     tol = 1e-6
     
@@ -60,8 +60,8 @@ def minimize_KDE_entropy(dat, labels, uncond_sigma, cond_sigma,
         # left and right mid-points
         x_l = (a + x_m) / 2.
         x_r = (b + x_m) / 2.
-        J_r, J_l = (OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_r, kernel_CDF), 
-                    OBJ_EVAL(dat, labels, uncond_sigma, cond_sigma, x_l, kernel_CDF))
+        J_r, J_l = (OBJ_EVAL(dat, labels, x_r, kernel_CDF, uncond_sigma, cond_sigma), 
+                    OBJ_EVAL(dat, labels, x_l, kernel_CDF, uncond_sigma, cond_sigma))
         
         J_min = np.min([J_a, J_b, J_m, J_r, J_l])
         

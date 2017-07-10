@@ -29,7 +29,7 @@ def split_features(leaf, kernel_CDF):
     for i in range(d):
         X = leaf.dat[i,:] if d>1 else leaf.dat
         thetas[i], scores[i] = optimizations.minimize_KDE_entropy(X, leaf.labels, 
-                                                                  .5, .5, kernel_CDF)
+                                                                  kernel_CDF)
     #pdb.set_trace()
         
     return thetas, scores
