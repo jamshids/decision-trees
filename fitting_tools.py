@@ -28,8 +28,9 @@ def split_features(leaf, kernel_CDF):
     # do the 1D optimization (inside the intervals permitted by the rules)
     for i in range(d):
         X = leaf.dat[i,:] if d>1 else leaf.dat
+        priors = leaf.class_prob
         thetas[i], scores[i] = optimizations.minimize_KDE_entropy(X, leaf.labels, 
-                                                                  kernel_CDF)
+                                                                  kernel_CDF, priors)
     #pdb.set_trace()
         
     return thetas, scores
@@ -89,44 +90,71 @@ def rule_divide(dat, rule):
     
     return left_inds, right_inds
 
-def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, selected_feature):
+def compute_probs_KDE(leaf, kernel_CDF, symbols, theta, 
+                      selected_feature, uncond_sigma=None, cond_sigma=None):
     """Given that we are on a specific node, computing the probability of
     reaching left and right children. The filtered data at the selected
     variable (feature component) and the optimized threshold should be 
-    among te inputs
+    among the inputs
+    
+    Note that this function will be used for a leaf that has been 
+    divided into children. That is to say, the leaf's data cannot be
+    a single scalar, otherwise it wouldn't have been divided (hence
+    it is NOT dimension-less)
     """
     
     # the data restricted to the selecte feature
     d = 1 if leaf.dat.ndim==1 else leaf.dat.shape[0]
     X = leaf.dat[selected_feature,:] if d>1 else leaf.dat
-
+    c = len(symbols)
+    n = len(leaf.labels)
+    
     # piors
-    left_priors = np.zeros(len(symbols))
-    left_labels = leaf.labels[X<=theta]
-    right_priors = np.zeros(len(symbols))
-    right_labels = leaf.labels[X>theta]
+    left_posts = np.zeros(c)
+    right_posts = np.zeros(c)
         
-    # marginal CDF of the kernel
-    sigma = .5
-    marginal_CDF = lambda theta: kernel_CDF(sigma, X, theta)
+    # marginal CDF of the kernel: Pr (x<theta | N_i)
+    if not(uncond_sigma):
+        if n>1:
+            uncond_sigma = 1.06*np.std(X)*n**(-1/5.)
+        else:
+            uncond_sigma = 1.
+    marginal_CDF = kernel_CDF(uncond_sigma, X, theta)
+    # taking care of being 1. or 0.
+    if marginal_CDF == 1.:
+        marginal_CDF -= 1e-6
+    elif marginal_CDF == 0.:
+        marginal_CDF += 1e-6
 
-    for j in range(len(symbols)):
-        # left
-        nj = left_labels==symbols[j]
-        if np.any(nj):
-            left_priors[j] = np.sum(nj) / float(len(left_labels))
-        # right
-        nj = right_labels==symbols[j]
-        if np.any(nj):
-            right_priors[j] = np.sum(nj) / float(len(right_labels))
-
+    for j in range(c):
+        # computing class-conditional marginal CDFs:
+        # Pr (x<theta | y=j, N_i) 
+        indic_j = leaf.labels==symbols[j]
+        if np.any(indic_j):
+            X_j = X[indic_j]
+            if not(cond_sigma):
+                cond_sigma = 1.06*np.std(X_j)*n**(-1/5.)
+            else:
+                cond_sigma = 1.  
+            cc_marginal_CDF = kernel_CDF(uncond_sigma, X_j, theta)
+                        
+            # computing the children's posteriors 
+            left_posts[j] = leaf.class_prob[j]*(cc_marginal_CDF/
+                                             marginal_CDF)
+            right_posts[j] = leaf.class_prob[j]*((1-cc_marginal_CDF)/
+                                              (1-marginal_CDF))
+           
+    # re-normalization of the posteriors to prevent accumulation 
+    # of the errors
+    left_posts = left_posts / np.sum(left_posts)
+    right_posts = right_posts / np.sum(right_posts)
     
     # probability of reaching left node (x<=theta)
-    left_reach_prob = marginal_CDF(theta)
-    right_reach_prob = 1 - left_reach_prob
+    left_reach_prob = marginal_CDF
+    right_reach_prob = 1 - marginal_CDF
     
     
-    return left_priors, right_priors, left_reach_prob, right_reach_prob
+    return left_posts, right_posts, left_reach_prob, right_reach_prob
 
 def CV_prune(T, n_folds):
     """Pruning a given (full tree) to the right size using cross validation

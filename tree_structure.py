@@ -110,10 +110,10 @@ class Tree(Node):
                     
                     # creating the new left/right leaves
                     # ----------------------------------------
-                    # priors and reachin probabilities
+                    # priors and reaching probabilities
                     probs = fitting_tools.compute_probs_KDE(leaf, self.kernel_CDF, self.symbols, 
                                                             best_split, selected_feature)
-                    left_priors, right_priors = probs[:2]
+                    left_posts, right_posts = probs[:2]
                     left_reach_prob = probs[2] * leaf.reach_prob
                     right_reach_prob = probs[3] * leaf.reach_prob
                     
@@ -131,9 +131,9 @@ class Tree(Node):
                     is_right_stopped = len(np.unique(right_labels))==1
                     # children nodes
                     left_child = Node(max_key+1, left_dat, left_labels, is_left_stopped, 
-                                      left_reach_prob, left_priors, parent=i)
+                                      left_reach_prob, left_posts, parent=i)
                     right_child = Node(max_key+2, right_dat, right_labels, is_right_stopped, 
-                                       right_reach_prob, right_priors, parent=i)
+                                       right_reach_prob, right_posts, parent=i)
                     
                     # updating the tree structure
                     # ---------------------------
@@ -216,9 +216,7 @@ class Tree(Node):
             # extract the leaf corresponding to a this sample
             leaf_ind = self.extract_leaf(x)
             leaf = self.node_dict[str(leaf_ind)]
-            n_leaf = float(len(leaf.labels))
-            for j in range(c):
-                probs[j,i] = np.sum(leaf.labels==self.symbols[j])/n_leaf
+            probs[:,i] = leaf.class_prob
             
         # predict class labels based on the computed posteriors
         class_predicts = np.argmax(probs, axis=0)
@@ -414,10 +412,10 @@ class Tree(Node):
                     sub_error, sub_leaves = self.subtree_props(int(nodes[i]))
                     
                     if sub_error > node_error:
+                        pdb.set_trace()
                         raise ValueError('Something went wrong: error rate of' +
                                          ' a subtree cannot be larger than its root')
                     elif len(sub_leaves)==1:
-                        #pdb.set_trace()
                         raise ValueError('Somethin went wrong: number of leaves of' +
                                          'a subtree rooted at a non-leaf node' +
                                          ' cannot be 1')

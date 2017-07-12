@@ -74,8 +74,8 @@ def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
         
     return objectives
 
-def KDE_entropy(dat, labels, theta, kernel_CDF,
-                uncond_sigma=None, cond_sigma=None, priors=None):
+def KDE_entropy(dat, labels, theta, kernel_CDF, priors,
+                uncond_sigma=None, cond_sigma=None):
     """Function for calculating the scalar entropy-based objective function at a fixed theta
     
     The data should be a 1-D array
@@ -89,6 +89,7 @@ def KDE_entropy(dat, labels, theta, kernel_CDF,
     J_theta = 0.
     
     # un-conditional marginal CDF
+    # compute Silverman's rule o thumb is no variance is given
     if not(uncond_sigma):
         if n>1:
             uncond_sigma = 1.06*np.std(dat)*n**(-1/5.)
@@ -98,6 +99,7 @@ def KDE_entropy(dat, labels, theta, kernel_CDF,
     # class-conditional marginal CDF
     for j in range(c):
         class_dat = dat[labels==symbols[j]]
+        # compute Silverman's rule of thumb if no variance is given
         if not(cond_sigma):
             if len(class_dat)>1:
                 cond_sigma = 1.06*np.std(class_dat)*len(class_dat)**(-1/5.)
@@ -105,12 +107,7 @@ def KDE_entropy(dat, labels, theta, kernel_CDF,
                 cond_sigma = 1.
             
         class_marginal = kernel_CDF(cond_sigma, class_dat, theta)
-        
-        if not(priors):
-            prior = np.sum(labels==symbols[j]) / float(n)
-        else:
-            prior = priors[j]
-            
+                    
         # taking care of being 1. or 0.
         if class_marginal==1.:
             class_marginal -= 1e-6
@@ -118,7 +115,7 @@ def KDE_entropy(dat, labels, theta, kernel_CDF,
             class_marginal += 1e-6
             
         # computing value of the corresponding term
-        class_term = prior*(class_marginal*np.log(marginal_CDF/class_marginal) + \
+        class_term = priors[j]*(class_marginal*np.log(marginal_CDF/class_marginal) + \
             (1.-class_marginal)*np.log((1-marginal_CDF)/(1-class_marginal)))
         
         # adding the term's value to the objective
