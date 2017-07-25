@@ -126,6 +126,7 @@ class Tree(Node):
                     left_labels = leaf.labels[left_inds]
                     right_dat = leaf.dat[right_inds] if d==1 else leaf.dat[:,right_inds]
                     right_labels = leaf.labels[right_inds]
+
                     # stop the new leaves or not?
                     is_left_stopped = len(np.unique(left_labels))==1
                     is_right_stopped = len(np.unique(right_labels))==1
@@ -430,5 +431,85 @@ class Tree(Node):
             alphas += [min(links)]
             
         return seq_tree, alphas
+
+
+def convert_SK(T, X_train, y_train, kernel_CDF):
+    """Converting a tree object trained by scikit-learn to our tree
+    structure
     
+    The conversion is done by taking the tree structure and the training data.
+    The latter is needed only in orer to assign data samples to the nodes.
+    """
+    
+    # array of all the nodes in T
+    sk_nodes = T.tree_.__getstate__()['nodes']
+    n_nodes = len(sk_nodes)
+    
+    # initialize our tree structure
+    KDE_T = Tree(X_train, y_train, kernel_CDF)
+    d = 1 if X_train.ndim==1 else X_train.shape[0]
+    
+    while not(KDE_T.check_full_stopped()):
+        # go through all the leaves and split the non-stopped ones
+        inds_to_remove = []
+        inds_to_add    = []
+
+        for i in KDE_T.leaf_inds:
+
+            leaf = KDE_T.node_dict[str(i)]
+
+            if not(leaf.is_stopped):
+
+                # best splits:]
+                selected_feature = sk_nodes[i][2]
+                best_split = sk_nodes[i][3]
+
+                # creating the new left/right leaves
+                # ----------------------------------------
+                # priors and reaching probabilities
+                probs = fitting_tools.compute_probs_KDE(leaf, KDE_T.kernel_CDF, KDE_T.symbols, 
+                                                        best_split, selected_feature)
+                left_posts, right_posts = probs[:2]
+                left_reach_prob = probs[2] * leaf.reach_prob
+                right_reach_prob = probs[3] * leaf.reach_prob
+
+                # new rule dictionary
+                leaf.rule = {str(selected_feature): best_split}
+                # data and labels for the left/right children
+                left_inds, right_inds = fitting_tools.rule_divide(leaf.dat, leaf.rule)
+                left_dat = leaf.dat[left_inds] if d==1 else leaf.dat[:,left_inds]
+                left_labels = leaf.labels[left_inds]
+                right_dat = leaf.dat[right_inds] if d==1 else leaf.dat[:,right_inds]
+                right_labels = leaf.labels[right_inds]
+
+                # stop the new leaves or not?
+                left_ID = sk_nodes[i][0]
+                right_ID = sk_nodes[i][1]
+                is_left_stopped = sk_nodes[left_ID][0]==-1
+                is_right_stopped = sk_nodes[right_ID][0]==-1
+                # children nodes
+                left_child = Node(left_ID, left_dat, left_labels, is_left_stopped, 
+                                  left_reach_prob, left_posts, parent=i)
+                right_child = Node(right_ID, right_dat, right_labels, is_right_stopped, 
+                                   right_reach_prob, right_posts, parent=i)
+
+                # updating the tree structure
+                # ---------------------------
+                # mark the index of the current leaf to throw it out from the leaf-list
+                inds_to_remove += [i]
+                # add the new leaves into the leaf-list
+                KDE_T.node_dict.update({str(left_ID): left_child, 
+                                      str(right_ID): right_child})
+                inds_to_add += [left_ID, right_ID]
+                # add the new nodes as the children of the old leaf
+                leaf.left = sk_nodes[i][0]
+                leaf.right = sk_nodes[i][1]
+                
+        # updating the leaf list
+        for j in inds_to_remove:
+            KDE_T.leaf_inds.remove(j)
+        KDE_T.leaf_inds += inds_to_add
+        
+    return KDE_T
+                
         
