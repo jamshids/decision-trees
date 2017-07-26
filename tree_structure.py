@@ -165,6 +165,7 @@ class Tree(Node):
         
         # start from the root
         curr_node = 0
+        path = [0]
         while curr_node not in self.leaf_inds:
             node_obj = self.node_dict[str(curr_node)]
             ruled_feat = node_obj.rule.keys()[0]
@@ -181,8 +182,10 @@ class Tree(Node):
                 curr_node = node_obj.right
             else:
                 curr_node = node_obj.left
+            # adding the current node to the path
+            path += [path]
             
-        return curr_node
+        return curr_node, path
     
     def posteriors_predict(self, X):
         """Predicting class label of a given sample probabilistically
@@ -215,7 +218,7 @@ class Tree(Node):
                 x = X[:,i]
 
             # extract the leaf corresponding to a this sample
-            leaf_ind = self.extract_leaf(x)
+            leaf_ind,_ = self.extract_leaf(x)
             leaf = self.node_dict[str(leaf_ind)]
             probs[:,i] = leaf.class_prob
             
@@ -439,6 +442,8 @@ def convert_SK(T, X_train, y_train, kernel_CDF):
     
     The conversion is done by taking the tree structure and the training data.
     The latter is needed only in orer to assign data samples to the nodes.
+    The algorithm that is used here for covnersion is very similar to the one
+    used for fitting a tree from scratch.
     """
     
     # array of all the nodes in T
