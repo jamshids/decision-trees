@@ -28,10 +28,17 @@ def eval_posteriors(X, T, lambdas):
     # Second, compute the empirical posteriors, one-by-one
     emp_posts_mat =  np.zeros((c,n))
     Lap_posts_mat =  np.zeros((c,n))
+    Smyth_posts_mat = np.zeros((c,n))
     for i in range(n):
         x = X[i] if X.ndim==1 else X[:,i]
         # extracting the leaf which x belongs to
-        leaf_ind = T.extract_leaf(x)
+        leaf_ind, path = T.extract_leaf(x)
+        # attributes included in the path
+        atts = []
+        for t in range(len(path)-1):
+            atts += [int(T.node_dict[str(path[t])].rule.keys()[0])]
+        atts = np.unique(atts)
+        
         for j in range(c):
             leaf = T.node_dict[str(leaf_ind)]
             class_count = np.sum(leaf.labels==T.symbols[j])
@@ -41,8 +48,36 @@ def eval_posteriors(X, T, lambdas):
             # after laplace correction
             Lap_posts_mat[j,i] = (class_count+lambdas[j]) / \
                 (float(total_count)+1)
-            
-    return KDE_posts_mat, emp_posts_mat, Lap_posts_mat
+            # Smyth's KDE-based formulation
+            Xleaf = leaf.dat
+            if np.float64(Xleaf).ndim==0:
+                if leaf.labels==j:
+                    likelihood = eval_KDE(Xleaf, x, None)
+                    Smyth_posts_mat[j,i]=likelihood
+            elif Xleaf.ndim==1:
+                class_indic = leaf.labels==T.symbols[j]
+                if any(class_indic):
+                    Xclass = Xleaf[class_indic]
+                    likelihood = eval_KDE(Xclass, x, None)
+                    Smyth_posts_mat[j,i]=likelihood*\
+                        class_count/total_count
+            else:
+                class_indic = leaf.labels==T.symbols[j]
+                if any(class_indic):
+                    Xclass = Xleaf[:,class_indic]
+                    likelihood = eval_KDE(Xclass, x, atts)
+                    Smyth_posts_mat[j,i]=likelihood*\
+                        class_count/total_count
+        if any(np.isnan(Smyth_posts_mat[:,i])):
+            pdb.set_trace()
+        
+        # normalizing Smyth's posteriors
+        if sum(Smyth_posts_mat[:,i])==0.:
+            Smyth_posts_mat[:,i] = emp_posts_mat[:,i]
+        else:
+            Smyth_posts_mat[:,i] /= sum(Smyth_posts_mat[:,i])
+    return (KDE_posts_mat, emp_posts_mat, 
+            Lap_posts_mat, Smyth_posts_mat)
 
 
 def compare_posterior_estimation(n_list):
@@ -57,18 +92,19 @@ def compare_posterior_estimation(n_list):
     """
     
     """generating fixed-szie test data set"""
-    X_test, Y_test, specs_list = gen_data.generate_class_GMM(500, 500, 1000)
+    X_test, Y_test, specs_list = gen_data.generate_class_GMM(500, 500, 00)
     
     """Evaluate posterior estimation based on trees trained with training
     data set of different sizes"""
     KDE_MSE = np.zeros(len(n_list))
     emp_MSE = np.zeros(len(n_list))
     Lap_MSE = np.zeros(len(n_list))
+    Smyth_MSE = np.zeros(len(n_list))
     
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
-    
+        
         # training original CART tree
         sklearn_T = tree.DecisionTreeClassifier()
         sklearn_T.fit(np.transpose(X_train), Y_train)
@@ -94,11 +130,68 @@ def compare_posterior_estimation(n_list):
         KDE_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[0])**2, axis=0)/3.) / float(n1+n2+n3)
         emp_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[1])**2, axis=0)/3.) / float(n1+n2+n3)
         Lap_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
+        Smyth_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[3])**2, axis=0)/3.) / float(n1+n2+n3)
         
-        
-    return KDE_MSE, emp_MSE, Lap_MSE
+    return KDE_MSE, emp_MSE, Lap_MSE, Smyth_MSE
     
     
+def eval_KDE(X, x_test, atts):
+    """Evaluating KDE-based likelihood of a sample based on Smyth's formulation
+    
+    The given data matrix should be column-wise with each row indicating
+    a feature. The test sample should be a 1D array.
+    """
+    
+    X = np.float64(X)
+    # if there is only a scalar data as X:
+    # no need to iterative over samples
+    if X.ndim==0:
+        n = 1
+        sigma = .5
+        KDE_d = np.exp(-(X - x_test)**2/(2.*sigma**2))/\
+            (np.sqrt(2.*np.pi)*sigma)
+        return KDE_d
+    # if there is a 1D array data as X:
+    # no need to iterate over attributes
+    elif X.ndim==1:
+        
+        n = len(X)
+        # test sample should also be a scalar
+        if np.float64(x_test).ndim>0:
+            raise ValueError("If leaf's data is a 1D array, test"+
+                             " sample can only be a scalar.")
+        # Silverman's kernel width
+        sigma = 1.06*np.std(X_d)*n**(-1/5.)
+        KDE_d = np.exp(-(X - x_test)**2/ (2.*sigma**2))/\
+            (np.sqrt(2.*np.pi)*sigma)
+        
+        return sum(KDE_d) / float(n)
+    
+    #If there is 2D array data as X
+    else:
+        n = X.shape[1]
+        # likeliood contribtion of each sample is computed
+        # by multiplying 1D kernels over those attributes 
+        # that are given
+        likelihoods_arr = np.ones(n)
+        for d in atts:
+            # only take the d'th feature
+            xd_test = x_test[d]
+            Xd = X[d,:]
+
+            # Silverman kernel width in current attribute
+            if np.std(Xd)==0.:
+                sigma = .5
+            else:
+                sigma = 1.06*np.std(Xd)*n**(-1/5.)
+            # computing KDE at this attribute
+            KDE_d = np.exp(-(Xd - xd_test)**2/(2.*sigma**2))/\
+                (np.sqrt(2.*np.pi)*sigma)
+            # multiplying KDE of this attribute
+            likelihoods_arr *= KDE_d
+
+        # adding all samples' contributiong
+        return sum(likelihoods_arr) / float(n)
 
     
     
