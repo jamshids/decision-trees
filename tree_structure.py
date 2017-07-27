@@ -384,7 +384,7 @@ class Tree(Node):
             del self.node_dict[str(i)]
             self.leaf_inds.remove(i)
         
-        print "%d siblings have been removed from the tree." % len(sibs_to_remove)
+        #print "%d siblings have been removed from the tree." % len(sibs_to_remove)
     
     def cost_complexity_seq(self):
         """Generating a sequence of trees, using cost-complexity algorithm

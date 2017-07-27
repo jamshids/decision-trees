@@ -96,25 +96,32 @@ def compare_posterior_estimation(n_list):
     
     """Evaluate posterior estimation based on trees trained with training
     data set of different sizes"""
-    KDE_MSE = np.zeros(len(n_list))
-    emp_MSE = np.zeros(len(n_list))
-    Lap_MSE = np.zeros(len(n_list))
-    Smyth_MSE = np.zeros(len(n_list))
+    KDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    emp_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    Lap_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    Smyth_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
         
         # training original CART tree
+        print "Fitting CART tree.."
         sklearn_T = tree.DecisionTreeClassifier()
         sklearn_T.fit(np.transpose(X_train), Y_train)
         # converting it to KDE-based format
         T = tree_structure.convert_SK(sklearn_T, X_train, Y_train, 
                                       objective_builders.normal_CDF)
         # training the tree based on the KDE-based training
-        #KDE_T = tree_structure.Tree(X_train, Y_train, objective_builders.normal_CDF)
-        #KDE_T.fit_full_tree()    
+        print "Fitting KDE-based tree.."
+        KDE_T = tree_structure.Tree(X_train, Y_train, objective_builders.normal_CDF)
+        KDE_T.fit_full_tree()
+        print "Pruning KDE-base tree.."
+        _, best_KDE_T = fitting_tools.CV_prune(KDE_T, 5)
         
+        
+        print "Computing the posteriors.."
         # true posteriors
         posteriors = np.zeros((3, X_test.shape[1]))
         posteriors[0,:] = gen_data.eval_GMM(X_test, specs_list[0]) * 200. / 800.
@@ -124,15 +131,29 @@ def compare_posterior_estimation(n_list):
         posteriors /= post_sums
         # estimated posteriors
         lambdas = np.array([n1, n2, n3]) / float(n1+n2+n3)
-        est_posteriors = eval_posteriors(X_test, T, lambdas)
+        est_posteriors = eval_posteriors(X_test, T, lambdas) + \
+            (KDE_T.posteriors_predict(X_test)[0],)
         
-        # compute MSE loss of the posterior estimations
-        KDE_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[0])**2, axis=0)/3.) / float(n1+n2+n3)
-        emp_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[1])**2, axis=0)/3.) / float(n1+n2+n3)
-        Lap_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
-        Smyth_MSE[i] = np.sum(np.sum((posteriors - est_posteriors[3])**2, axis=0)/3.) / float(n1+n2+n3)
+        # compute MSE loss of posterior estimations
+        KDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[0])**2, axis=0)/3.) / float(n1+n2+n3)
+        emp_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[1])**2, axis=0)/3.) / float(n1+n2+n3)
+        Lap_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
+        Smyth_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[3])**2, axis=0)/3.) / float(n1+n2+n3)
+        TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[4])**2, axis=0)/3.) / float(n1+n2+n3)
         
-    return KDE_MSE, emp_MSE, Lap_MSE, Smyth_MSE
+        # compute log-loss of posterior estimations
+        # first, get rid of "zeros"
+        posteriors[posteriors==0] = posteriors[posteriors==0] + 1e-6
+        for t in range(len(est_posteriors)):
+            zero_indics = est_posteriors[t]==0
+            est_posteriors[t][zero_indics] = est_posteriors[t][zero_indics] + 1e-6
+        KDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[0])))/float(n1+n2+n3)
+        emp_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[1])))/float(n1+n2+n3)
+        Lap_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[2])))/float(n1+n2+n3)
+        Smyth_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[3])))/float(n1+n2+n3)
+        TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
+        
+    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, TKDE_loss
     
     
 def eval_KDE(X, x_test, atts):
