@@ -183,7 +183,7 @@ class Tree(Node):
             else:
                 curr_node = node_obj.left
             # adding the current node to the path
-            path += [path]
+            path += [curr_node]
             
         return curr_node, path
     
