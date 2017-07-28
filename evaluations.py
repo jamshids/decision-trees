@@ -92,7 +92,7 @@ def compare_posterior_estimation(n_list):
     """
     
     """generating fixed-szie test data set"""
-    X_test, Y_test, specs_list = gen_data.generate_class_GMM(500, 500, 00)
+    X_test, Y_test, specs_list = gen_data.generate_class_GMM(500, 500, 1000)
     
     """Evaluate posterior estimation based on trees trained with training
     data set of different sizes"""
@@ -102,6 +102,7 @@ def compare_posterior_estimation(n_list):
     Smyth_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     
+    accs = np.zeros((5, len(n_list)))
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
@@ -153,7 +154,12 @@ def compare_posterior_estimation(n_list):
         Smyth_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[3])))/float(n1+n2+n3)
         TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
         
-    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, TKDE_loss
+        # compute the accurac for each posterior too
+        for t in range(len(est_posteriors)):
+            preds = np.argmax(est_posteriors[t], axis=0)
+            accs[t,i] = np.sum(T.symbols[preds] == Y_test) / float(len(Y_test))
+        
+    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, TKDE_loss, accs
     
     
 def eval_KDE(X, x_test, atts):

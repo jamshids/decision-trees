@@ -191,13 +191,14 @@ def CV_prune(T, n_folds):
         cv_T = tree_structure.Tree(train_dat, train_labels, 
                                    T.kernel_CDF)
         cv_T.fit_full_tree()
-        print "Fitting the full tree for CV %d" % i
+        print "CV %d .. " % i,
         
         # generate the pruned sequence of subtrees 
         seq, alphas = cv_T.cost_complexity_seq()
         all_seqs += [copy.deepcopy(seq)]
         all_alphas += [copy.deepcopy(alphas)]
         
+    print "\n Now choosing the best tree.."
     # scoring for each subtrees of the main tree using 
     # cross-validation subtrees
     scores = np.zeros(len(all_seqs[0]))
