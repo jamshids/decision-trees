@@ -165,8 +165,20 @@ class Tree(Node):
                 self.leaf_inds.remove(j)
             self.leaf_inds += inds_to_add
             
-            #pdb.set_trace()
-            
+    def node_path(self, node_ind):
+        """Extracting the path from a given node to the root
+        """
+        node = self.node_dict[str(node_ind)]
+        path = [node_ind]
+        while node.parent:
+            path += [node.parent]
+            node = self.node_dict[str(node.parent)]
+        path += [0]
+        # flipping the path to keep the order to be from root to the node
+        path = list(reversed(path))
+        
+        return path
+        
     def extract_leaf(self, x):
         """Leaf corresponding to a data sample will be extracted by followin the nodes
         from the root until a leaf is encountered
