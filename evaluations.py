@@ -22,13 +22,18 @@ def eval_posteriors(X, T, lambdas):
     n = len(X) if X.ndim==1 else X.shape[1]
     c = len(T.symbols)
     
+    # confusion factor to be used in Ling's method
+    s = .3
+    
     # first, compute the KDE-based  posteriors at once
     KDE_posts_mat,_ = T.posteriors_predict(X)
     
-    # Second, compute the empirical posteriors, one-by-one
+    # Second, compute other posteriors, one-by-one
     emp_posts_mat =  np.zeros((c,n))
     Lap_posts_mat =  np.zeros((c,n))
     Smyth_posts_mat = np.zeros((c,n))
+    Ling_posts_mat = Ling_posterior_estimation(T, X, s)
+        
     for i in range(n):
         x = X[i] if X.ndim==1 else X[:,i]
         # extracting the leaf which x belongs to
@@ -39,8 +44,8 @@ def eval_posteriors(X, T, lambdas):
             atts += [int(T.node_dict[str(path[t])].rule.keys()[0])]
         atts = np.unique(atts)
         
+        leaf = T.node_dict[str(leaf_ind)]
         for j in range(c):
-            leaf = T.node_dict[str(leaf_ind)]
             class_count = np.sum(leaf.labels==T.symbols[j])
             total_count = len(leaf.labels)
             # empirical
@@ -68,6 +73,7 @@ def eval_posteriors(X, T, lambdas):
                     likelihood = eval_KDE(Xclass, x, atts)
                     Smyth_posts_mat[j,i]=likelihood*\
                         class_count/total_count
+                    
         if any(np.isnan(Smyth_posts_mat[:,i])):
             pdb.set_trace()
         
@@ -76,9 +82,81 @@ def eval_posteriors(X, T, lambdas):
             Smyth_posts_mat[:,i] = emp_posts_mat[:,i]
         else:
             Smyth_posts_mat[:,i] /= sum(Smyth_posts_mat[:,i])
+            
     return (KDE_posts_mat, emp_posts_mat, 
-            Lap_posts_mat, Smyth_posts_mat)
+            Lap_posts_mat, Smyth_posts_mat, Ling_posts_mat)
 
+
+def Ling_posterior_estimation(T, X, s):
+    """A posterior estimation method proposed by Ling & Yan (ICML, 2003)
+    
+    This method computes the posterior for each test sample by 
+    considering all the leaves. Contribution of each leaf depends on
+    how many of the rules in the path from the root to that leaf are
+    satisfied by the test sample. So in this method, we need to go through
+    all the nodes and check if the test sample satisfies their rules.
+    
+    Here, the input variable 0<s<1 is the confusion factor introduced in
+    the paper. Smaller s results less contribution from othe leaves.
+    And s=1 leads to equal contribution for all the leaves.
+    """
+    
+    # number of test samples
+    n = len(X) if X.ndim==1 else X.shape[1]
+    
+    # posteriors in all the leaves
+    c = len(T.symbols)
+    all_leaf_posts = np.zeros((c,len(T.leaf_inds)))
+    for t, leaf_ind in enumerate(T.leaf_inds):
+        leaf = T.node_dict[str(leaf_ind)]
+        all_leaf_posts[:,t] = leaf.class_prob
+        
+    # listing (encoding) rules of all the nodes
+    # .. and also checking if each test sample satisfies them
+    rules_list = []
+    all_nodes = [int(node_ind) for node_ind in T.node_dict.keys()]
+    all_nodes.sort()
+    test_passing = np.empty((n, len(all_nodes)))
+    for node_ind in all_nodes:
+        if node_ind==0: continue
+        node = T.node_dict[str(node_ind)]
+        # determine if it's left or right child
+        parent = T.node_dict[str(node.parent)]
+        if parent.left==node_ind:
+            sgn = 1.
+        else:
+            sgn = -1.
+        feature = int(parent.rule.keys()[0])
+        theta = parent.rule[str(feature)]
+        
+        # checking rule passing of the test samples
+        if X.ndim==1:
+            X_feat = X
+        else:
+            X_feat = X[feature,:]
+        test_passing[:,node_ind-1] = ~(sgn*X_feat <= sgn*theta)
+        
+    # now that we have contribution to all the leaves, 
+    # we can compute the posterior
+        
+    # Now, based on the passing test for all the nodes, 
+    # compute for each leaf's path, how many rules are 
+    # satisfied by the test samples. 
+    test_leaf_diffs = np.zeros((n, len(T.leaf_inds)))
+    for i, leaf_ind in enumerate(T.leaf_inds):
+        path = T.node_path(leaf_ind)
+        for node_ind in path[1:]:
+            # when a numerical array is added to a logical array
+            # each element will be added by one, if the corresponding
+            # element is True
+            test_leaf_diffs[:, i] += test_passing[:, node_ind-1]
+    test_leaf_diffs = s**test_leaf_diffs
+    norm_term = np.diag(1. / np.sum(test_leaf_diffs, axis=1))
+    posteriors = np.dot(test_leaf_diffs, all_leaf_posts.T)
+    posteriors = np.dot(norm_term, posteriors)
+    
+    return posteriors.T
+    
 
 def compare_posterior_estimation(n_list):
     """Generating synthetic GMM data, estimating class probabilities
@@ -100,9 +178,10 @@ def compare_posterior_estimation(n_list):
     emp_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Lap_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Smyth_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    Ling_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     
-    accs = np.zeros((5, len(n_list)))
+    accs = np.zeros((6, len(n_list)))
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
@@ -117,10 +196,7 @@ def compare_posterior_estimation(n_list):
         # training the tree based on the KDE-based training
         print "Fitting KDE-based tree.."
         KDE_T = tree_structure.Tree(X_train, Y_train, objective_builders.normal_CDF)
-        KDE_T.fit_full_tree()
-        print "Pruning KDE-base tree.."
-        _, best_KDE_T = fitting_tools.CV_prune(KDE_T, 5)
-        
+        KDE_T.fit_full_tree()        
         
         print "Computing the posteriors.."
         # true posteriors
@@ -140,7 +216,8 @@ def compare_posterior_estimation(n_list):
         emp_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[1])**2, axis=0)/3.) / float(n1+n2+n3)
         Lap_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
         Smyth_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[3])**2, axis=0)/3.) / float(n1+n2+n3)
-        TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[4])**2, axis=0)/3.) / float(n1+n2+n3)
+        Ling_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[4])**2, axis=0)/3.) / float(n1+n2+n3)
+        TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[5])**2, axis=0)/3.) / float(n1+n2+n3)
         
         # compute log-loss of posterior estimations
         # first, get rid of "zeros"
@@ -152,14 +229,16 @@ def compare_posterior_estimation(n_list):
         emp_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[1])))/float(n1+n2+n3)
         Lap_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[2])))/float(n1+n2+n3)
         Smyth_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[3])))/float(n1+n2+n3)
-        TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
+        Ling_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
+        TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[5])))/float(n1+n2+n3)
         
         # compute the accurac for each posterior too
         for t in range(len(est_posteriors)):
             preds = np.argmax(est_posteriors[t], axis=0)
             accs[t,i] = np.sum(T.symbols[preds] == Y_test) / float(len(Y_test))
         
-    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, TKDE_loss, accs
+        
+    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, Ling_loss, TKDE_loss, accs
     
     
 def eval_KDE(X, x_test, atts):

@@ -21,17 +21,13 @@ def split_features(leaf, kernel_CDF):
     
     scores = np.zeros(d)
     thetas = np.zeros(d)
-    
-    # objective builder
-    #objectives = objective_builders.KDE_1D(leaf.dat, leaf.labels, kernel_CDF)
-    
+        
     # do the 1D optimization (inside the intervals permitted by the rules)
     for i in range(d):
         X = leaf.dat[i,:] if d>1 else leaf.dat
         priors = leaf.class_prob
         thetas[i], scores[i] = optimizations.minimize_KDE_entropy(X, leaf.labels, 
                                                                   kernel_CDF, priors)
-    #pdb.set_trace()
         
     return thetas, scores
 

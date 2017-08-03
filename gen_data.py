@@ -90,11 +90,11 @@ def generate_class_GMM(n1, n2, n3, plot_flag=False):
     
     # first class
     mean11 = np.array([0,0.])
-    cov11 = np.array([[2.,0.], [0,1]])
+    cov11 = np.array([[3.,0.], [0,1.5]])
     mean12 = np.array([-2.,4.])
-    cov12 = np.array([[.1,.0], [0,5.]])
+    cov12 = np.array([[1.,.0], [0,5.]])
     mean13 = np.array([1.,8.])
-    cov13 = np.array([[2.5,0.], [0.,1.5]])
+    cov13 = np.array([[3.5,0.], [0.,2.5]])
     pies1 = [.3, .3, .4]
     specs1 = [(pies1[0], mean11, cov11), 
              (pies1[1], mean12, cov12),
@@ -103,11 +103,11 @@ def generate_class_GMM(n1, n2, n3, plot_flag=False):
 
     # second class
     mean21 = np.array([1.,4.])
-    cov21 = np.array([[1.5,0.], [0,1]])
+    cov21 = np.array([[2.5,0.], [0,2]])
     mean22 = np.array([3.,0.])
-    cov22 = np.array([[.1,.0], [0,5.]])
+    cov22 = np.array([[2.,.0], [0,5.]])
     mean23 = np.array([1.,-4.])
-    cov23 = np.array([[2.5,0.], [0.,1]])
+    cov23 = np.array([[3.5,0.], [0.,2]])
     pies2 = [.3, .3, .4]
     specs2 = [(pies2[0], mean21, cov21), 
              (pies2[1], mean22, cov22),

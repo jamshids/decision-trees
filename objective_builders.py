@@ -106,21 +106,21 @@ def KDE_entropy(dat, labels, theta, kernel_CDF, priors,
             else:
                 cond_sigma = 1.
             
-        class_marginal = kernel_CDF(cond_sigma, class_dat, theta)
+        likelihood = kernel_CDF(cond_sigma, class_dat, theta)
                     
         # taking care of being 1. or 0.
-        if class_marginal==1.:
-            class_marginal -= 1e-6
-        elif class_marginal==0.:
-            class_marginal += 1e-6
+        if likelihood==1.:
+            likelihood -= 1e-6
+        elif likelihood==0.:
+            likelihood += 1e-6
         
         # computing value of the corresponding term
-        class_term = priors[j]*(class_marginal*np.log(marginal_CDF/class_marginal) + \
-            (1.-class_marginal)*np.log((1-marginal_CDF)/(1-class_marginal)))
+        class_term = priors[j]*(likelihood*np.log(marginal_CDF/likelihood) + \
+            (1.-likelihood)*np.log((1-marginal_CDF)/(1-likelihood)))
         
         # adding the term's value to the objective
         J_theta += class_term
-        
+                
     return J_theta
 
 
