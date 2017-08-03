@@ -85,10 +85,14 @@ class Tree(Node):
         leaf has samlpes with only a single unique class label.
         """
         
+        min_reach_prob = .01
+        
         # in order to give unique keys to the nodes, start by a value larger
         # than the existing keys in the node dictionary
         max_key = max(map(int, self.node_dict.keys()))
         
+        
+        #pdb.set_trace()
         # start adding children until full purity is obtained
         while not(self.check_full_stopped()):
             
@@ -116,6 +120,11 @@ class Tree(Node):
                     left_posts, right_posts = probs[:2]
                     left_reach_prob = probs[2] * leaf.reach_prob
                     right_reach_prob = probs[3] * leaf.reach_prob
+                    
+                    if left_reach_prob < min_reach_prob or \
+                            right_reach_prob < min_reach_prob:
+                        leaf.is_stopped = True
+                        continue
                     
                     # new rule dictionary
                     leaf.rule = {str(selected_feature): best_split}
