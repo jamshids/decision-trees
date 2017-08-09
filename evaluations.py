@@ -181,30 +181,32 @@ def compare_posterior_estimation(n_list):
     forest_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Smyth_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Ling_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    forest_emp_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    forest_Lap_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     
-    accs = np.zeros((6, len(n_list)))
-    AUCs = np.zeros((6, len(n_list)))
+    accs = np.zeros((8, len(n_list)))
+    AUCs = np.zeros((8, len(n_list)))
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
         
         # training original CART tree and random forest
-        print "Fitting CART tree.."
+        print "Fitting CART tree.. ",
         sklearn_T = tree.DecisionTreeClassifier()
         sklearn_T.fit(np.transpose(X_train), Y_train)
-        print "Creating a random forest"
+        print "Creating a random forest.. ",
         tree_num = 100
         forest = fitting_tools.create_forest(tree_num, X_train, Y_train)
         # converting it to KDE-based format
         T = tree_structure.convert_SK(sklearn_T, X_train, Y_train, 
                                       objective_builders.normal_CDF)
         # training the tree based on the KDE-based training
-        print "Fitting KDE-based tree.."
+        print "Fitting KDE-based tree.. ",
         KDE_T = tree_structure.Tree(X_train, Y_train, objective_builders.normal_CDF)
         KDE_T.fit_full_tree()
         
-        print "Computing the posteriors.."
+        print "Computing the posteriors.. "
         # true posteriors
         posteriors = np.zeros((3, X_test.shape[1]))
         posteriors[0,:] = gen_data.eval_GMM(X_test, specs_list[0]) * 200. / 800.
@@ -215,7 +217,7 @@ def compare_posterior_estimation(n_list):
         # estimated posteriors
         lambdas = np.array([n1, n2, n3]) / float(n1+n2+n3)
         est_posteriors = eval_posteriors(X_test, T, lambdas) + \
-            (KDE_T.posteriors_predict(X_test)[0],)
+            forest_posterior(forest, X_test, lambdas) + (KDE_T.posteriors_predict(X_test)[0],)
         
         # MSE loss
         KDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[0])**2, axis=0)/3.) / float(n1+n2+n3)
@@ -223,7 +225,9 @@ def compare_posterior_estimation(n_list):
         Lap_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
         Smyth_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[3])**2, axis=0)/3.) / float(n1+n2+n3)
         Ling_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[4])**2, axis=0)/3.) / float(n1+n2+n3)
-        TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[5])**2, axis=0)/3.) / float(n1+n2+n3)
+        forest_emp_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[5])**2, axis=0)/3.) / float(n1+n2+n3)
+        forest_Lap_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[6])**2, axis=0)/3.) / float(n1+n2+n3)
+        TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[7])**2, axis=0)/3.) / float(n1+n2+n3)
         
         # log-loss
         # first, get rid of "zeros"
@@ -236,20 +240,24 @@ def compare_posterior_estimation(n_list):
         Lap_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[2])))/float(n1+n2+n3)
         Smyth_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[3])))/float(n1+n2+n3)
         Ling_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
-        TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[5])))/float(n1+n2+n3)
+        forest_emp_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[5])))/float(n1+n2+n3)
+        forest_Lap_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[6])))/float(n1+n2+n3)
+        TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[7])))/float(n1+n2+n3)
         
         # AUCs
-        for t in len(est_posteriors):
-            scores = est_posteriors[t]
-            AUCs[t,i] = ranking_AUC(scores, Y_test)
+        #for t in len(est_posteriors):
+        #    scores = est_posteriors[t]
+        #    AUCs[t,i] = ranking_AUC(scores, Y_test)
         
         # compute the accurac for each posterior too
         for t in range(len(est_posteriors)):
             preds = np.argmax(est_posteriors[t], axis=0)
             accs[t,i] = np.sum(T.symbols[preds] == Y_test) / float(len(Y_test))
         
+        print "Size %d is done" % np.sum(list(n_list[i]))
         
-    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, Ling_loss, TKDE_loss, accs, AUCs
+    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, Ling_loss, \
+        forest_emp_loss, forest_Lap_loss, TKDE_loss, accs
     
     
 def eval_KDE(X, x_test, atts):
