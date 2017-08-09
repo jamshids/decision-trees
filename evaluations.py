@@ -56,23 +56,24 @@ def eval_posteriors(X, T, lambdas):
             # Smyth's KDE-based formulation
             Xleaf = leaf.dat
             if np.float64(Xleaf).ndim==0:
-                if leaf.labels==j:
+                if leaf.labels==T.symbols[j]:
                     likelihood = eval_KDE(Xleaf, x, None)
-                    Smyth_posts_mat[j,i]=likelihood
+                    prior = T.node_dict['0'].class_prob[j]
+                    Smyth_posts_mat[j,i]=likelihood * prior
             elif Xleaf.ndim==1:
                 class_indic = leaf.labels==T.symbols[j]
                 if any(class_indic):
                     Xclass = Xleaf[class_indic]
                     likelihood = eval_KDE(Xclass, x, None)
-                    Smyth_posts_mat[j,i]=likelihood*\
-                        class_count/total_count
+                    prior = T.node_dict['0'].class_prob[j]
+                    Smyth_posts_mat[j,i]=likelihood * prior
             else:
                 class_indic = leaf.labels==T.symbols[j]
                 if any(class_indic):
                     Xclass = Xleaf[:,class_indic]
                     likelihood = eval_KDE(Xclass, x, atts)
-                    Smyth_posts_mat[j,i]=likelihood*\
-                        class_count/total_count
+                    prior = T.node_dict['0'].class_prob[j]
+                    Smyth_posts_mat[j,i]=likelihood * prior
                     
         if any(np.isnan(Smyth_posts_mat[:,i])):
             pdb.set_trace()
@@ -182,6 +183,7 @@ def compare_posterior_estimation(n_list):
     TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     
     accs = np.zeros((6, len(n_list)))
+    AUCs = np.zeros((6, len(n_list)))
     for i in range(len(n_list)):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
@@ -196,7 +198,7 @@ def compare_posterior_estimation(n_list):
         # training the tree based on the KDE-based training
         print "Fitting KDE-based tree.."
         KDE_T = tree_structure.Tree(X_train, Y_train, objective_builders.normal_CDF)
-        KDE_T.fit_full_tree()        
+        KDE_T.fit_full_tree()
         
         print "Computing the posteriors.."
         # true posteriors
@@ -211,7 +213,7 @@ def compare_posterior_estimation(n_list):
         est_posteriors = eval_posteriors(X_test, T, lambdas) + \
             (KDE_T.posteriors_predict(X_test)[0],)
         
-        # compute MSE loss of posterior estimations
+        # MSE loss
         KDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[0])**2, axis=0)/3.) / float(n1+n2+n3)
         emp_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[1])**2, axis=0)/3.) / float(n1+n2+n3)
         Lap_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[2])**2, axis=0)/3.) / float(n1+n2+n3)
@@ -219,7 +221,7 @@ def compare_posterior_estimation(n_list):
         Ling_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[4])**2, axis=0)/3.) / float(n1+n2+n3)
         TKDE_loss[0][i] = np.sum(np.sum((posteriors - est_posteriors[5])**2, axis=0)/3.) / float(n1+n2+n3)
         
-        # compute log-loss of posterior estimations
+        # log-loss
         # first, get rid of "zeros"
         posteriors[posteriors==0] = posteriors[posteriors==0] + 1e-6
         for t in range(len(est_posteriors)):
@@ -232,13 +234,18 @@ def compare_posterior_estimation(n_list):
         Ling_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[4])))/float(n1+n2+n3)
         TKDE_loss[1][i] = np.sum(posteriors*(np.log(posteriors) - np.log(est_posteriors[5])))/float(n1+n2+n3)
         
+        # AUCs
+        for t in len(est_posteriors):
+            scores = est_posteriors[t]
+            AUCs[t,i] = ranking_AUC(scores, Y_test)
+        
         # compute the accurac for each posterior too
         for t in range(len(est_posteriors)):
             preds = np.argmax(est_posteriors[t], axis=0)
             accs[t,i] = np.sum(T.symbols[preds] == Y_test) / float(len(Y_test))
         
         
-    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, Ling_loss, TKDE_loss, accs
+    return KDE_loss, emp_loss, Lap_loss, Smyth_loss, Ling_loss, TKDE_loss, accs, AUCs
     
     
 def eval_KDE(X, x_test, atts):
@@ -262,12 +269,13 @@ def eval_KDE(X, x_test, atts):
     elif X.ndim==1:
         
         n = len(X)
+        
         # test sample should also be a scalar
         if np.float64(x_test).ndim>0:
             raise ValueError("If leaf's data is a 1D array, test"+
                              " sample can only be a scalar.")
         # Silverman's kernel width
-        sigma = 1.06*np.std(X_d)*n**(-1/5.)
+        sigma = 1.06*np.std(X)*n**(-1/5.)
         KDE_d = np.exp(-(X - x_test)**2/ (2.*sigma**2))/\
             (np.sqrt(2.*np.pi)*sigma)
         
@@ -299,5 +307,39 @@ def eval_KDE(X, x_test, atts):
         # adding all samples' contributiong
         return sum(likelihoods_arr) / float(n)
 
+def ranking_AUC(scores, labels):
+    """Estimating AUC value for a set of scores and their labels
     
+    The function considers all pairs of labels if multiple classes
+    exist. For each pair, the scores are ranked and AUC is 
+    estimated using a counting-based metric for measuring
+    separability of the scores of one class versus the other.
+    """
     
+    # number of classes
+    symbols = np.unique(labels)
+    c = len(symbols)
+    
+    AUC = 0.
+    for j in range(c):
+        for k in range(j+1, c):
+            # rank the scores
+            sort_inds = np.argsort(scores) + 1
+            sorted_Y = labels[sort_inds-1]
+            
+            Sj = np.sum(sort_inds[labels==symbols[j]])
+            Sk = np.sum(sort_inds[labels==symbols[k]])
+            nj = np.sum(labels==symbols[j])
+            nk = np.sum(labels==symbols[k])
+            
+            AUC_jk = (Sj - nj*(nj+1)/2.) / float(nj*nk)
+            AUC_kj = (Sk - nk*(nk+1)/2.) / float(nj*nk)
+            
+            # add the AUC estimation of this pair to the total
+            AUC += max(AUC_jk, AUC_kj)
+            
+    # taking the average
+    AUC /= c*(c-1)/2.
+    
+    return AUC
+
