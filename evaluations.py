@@ -178,6 +178,7 @@ def compare_posterior_estimation(n_list):
     KDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     emp_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Lap_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
+    forest_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Smyth_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     Ling_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
     TKDE_loss = (np.zeros(len(n_list)), np.zeros(len(n_list)))
@@ -188,10 +189,13 @@ def compare_posterior_estimation(n_list):
         n1, n2, n3 = n_list[i]
         X_train, Y_train, _ = gen_data.generate_class_GMM(n1, n2, n3)
         
-        # training original CART tree
+        # training original CART tree and random forest
         print "Fitting CART tree.."
         sklearn_T = tree.DecisionTreeClassifier()
         sklearn_T.fit(np.transpose(X_train), Y_train)
+        print "Creating a random forest"
+        tree_num = 100
+        forest = fitting_tools.create_forest(tree_num, X_train, Y_train)
         # converting it to KDE-based format
         T = tree_structure.convert_SK(sklearn_T, X_train, Y_train, 
                                       objective_builders.normal_CDF)
@@ -306,6 +310,50 @@ def eval_KDE(X, x_test, atts):
 
         # adding all samples' contributiong
         return sum(likelihoods_arr) / float(n)
+
+def forest_posterior(forest, X, priors):
+    """Computing posterior (class) probability of given samples
+    based on a random forest trained using Scikit-Learn
+    
+    The posteriors at each tree are computed using empirical and 
+    Laplace methods. The final posterior probability of the
+    forest is the average posteriors of all the trees.
+    
+    Note that in the Laplace correction, we use priors based on
+    empirical estimation of the original label set, not the 
+    re-sampled data set.
+    """
+    
+    # getting all the trees in the forest
+    Ts = forest.estimators_
+    tree_num = len(Ts)
+    
+    # for each given sample, find its leaf in each of the trees
+    leaves = forest.apply(X.T)
+    
+    c = forest.n_classes_
+    n = leaves.shape[0]
+    emp_posteriors = np.zeros((c, n))
+    Lap_posteriors = np.zeros((c, n))
+    
+    for i in range(n):
+        Ts_emp_posterior = np.zeros((c, tree_num))
+        Ts_Lap_posterior = np.zeros((c, tree_num))
+        
+        for j in range(tree_num):
+            # class fraction at the extraced leaf of this tree
+            class_fracs = Ts[j].tree_.__getstate__()['values'][leaves[i,j]]
+            # empirical posterior of this tree
+            Ts_emp_posterior[:, j] = class_fracs / np.sum(class_fracs)
+            # empirical posterior of this tree
+            Ts_Lap_posterior[:,j] = (class_fracs + priors) / \
+                (np.sum(class_fracs) + 1.)
+            
+        # taking the average of the tree's posterior
+        emp_posteriors[:,i] = np.mean(Ts_emp_posterior, axis=1)
+        Lap_posteriors[:,i] = np.mean(Ts_Lap_posterior, axis=1)
+        
+    return emp_posteriors, Lap_posteriors
 
 def ranking_AUC(scores, labels):
     """Estimating AUC value for a set of scores and their labels
