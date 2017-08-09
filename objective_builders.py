@@ -74,8 +74,7 @@ def KDE_1D(dat, labels, kernel_CDF, class_priors=None):
         
     return objectives
 
-def KDE_entropy(dat, labels, theta, kernel_CDF, priors,
-                uncond_sigma=None, cond_sigma=None):
+def KDE_entropy(dat, labels, theta, kernel_CDF, priors):
     """Function for calculating the scalar entropy-based objective function at a fixed theta
     
     The data should be a 1-D array
@@ -89,24 +88,11 @@ def KDE_entropy(dat, labels, theta, kernel_CDF, priors,
     J_theta = 0.
     
     # un-conditional marginal CDF
-    # compute Silverman's rule o thumb is no variance is given
-    if not(uncond_sigma):
-        if n>1:
-            uncond_sigma = 1.06*np.std(dat)*n**(-1/5.)
-        else:
-            uncond_sigma = 1.
-    marginal_CDF = kernel_CDF(uncond_sigma, dat, theta)
+    marginal_CDF = kernel_CDF(dat, theta)
     # class-conditional marginal CDF
     for j in range(c):
         class_dat = dat[labels==symbols[j]]
-        # compute Silverman's rule of thumb if no variance is given
-        if not(cond_sigma):
-            if len(class_dat)>1:
-                cond_sigma = 1.06*np.std(class_dat)*len(class_dat)**(-1/5.)
-            else:
-                cond_sigma = 1.
-            
-        likelihood = kernel_CDF(cond_sigma, class_dat, theta)
+        likelihood = kernel_CDF(class_dat, theta)
                     
         # taking care of being 1. or 0.
         if likelihood==1.:
@@ -124,15 +110,26 @@ def KDE_entropy(dat, labels, theta, kernel_CDF, priors,
     return J_theta
 
 
-def normal_CDF(sigma, dat, theta):
+def normal_CDF(dat, theta):
     """
     CDF of a scalar KDE based on Gaussian kernels. 
     
     |sigma| is a positive scalar denoting the variance of the Gaussian kernel.
     """
     
-    if len(dat)==0.:
+    n = len(dat)
+    
+    if n==0.:
         return 0.
-    else:    
-        return np.sum(norm.cdf((theta - dat)/sigma)) / len(dat)
+    else:
+        # check if the data are equal
+        std = np.std(dat)
+        if std==0:
+            sigma = .1
+        elif std>0:
+            # Silverman's rule of thumb
+            sigma = 1.06*std*n**(-1/5.)
+        
+        # return the CDF of Gaussian kernel
+        return np.sum(norm.cdf((theta - dat)/sigma)) / n
     

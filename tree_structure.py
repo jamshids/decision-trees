@@ -38,7 +38,7 @@ class Tree(Node):
     Tree class: it has a list of nodes, where the leaves are determined
     """
     
-    def __init__(self, dat, labels, kernel_CDF):
+    def __init__(self, dat, labels, kernel_CDF, is_random=False):
         """
         Tree constructor: the objectives is a array of functions, each
         an objective to minimize over a single feature component
@@ -60,6 +60,7 @@ class Tree(Node):
         self.leaf_inds = [0]
         self.symbols = class_info[0,:]
         self.kernel_CDF = kernel_CDF
+        self.is_random = is_random
     
     
     def check_full_stopped(self):
@@ -87,6 +88,10 @@ class Tree(Node):
         
         min_reach_prob = .01
         
+        # dimensionality of training data
+        root = self.node_dict['0']
+        d = 1 if root.dat.ndim==1 else root.dat.shape[0]
+        
         # in order to give unique keys to the nodes, start by a value larger
         # than the existing keys in the node dictionary
         max_key = max(map(int, self.node_dict.keys()))
@@ -108,9 +113,18 @@ class Tree(Node):
                 if not(leaf.is_stopped):
                     
                     # best splits:
-                    thetas, scores = fitting_tools.split_features(leaf, self.kernel_CDF)
-                    selected_feature = np.argmin(scores)
-                    best_split = thetas[selected_feature]
+                    if self.is_random:
+                        # random selection of the splitting feature
+                        selected_feature = np.random.randint(d)
+                        theta, score = fitting_tools.split_features(leaf, self.kernel_CDF,
+                                                                    selected_feature)
+                        best_split = theta
+                    else:
+                        # selecting the best threshold for each feature and then select 
+                        # best of the bests
+                        thetas, scores = fitting_tools.split_features(leaf, self.kernel_CDF)
+                        selected_feature = np.argmin(scores)
+                        best_split = thetas[selected_feature]
                     
                     # creating the new left/right leaves
                     # ----------------------------------------

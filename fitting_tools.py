@@ -6,15 +6,23 @@ import copy
 import tree_structure
 from objective_builders import normal_CDF
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn import tree, ensemble
 
-def split_features(leaf, kernel_CDF):
+def split_features(leaf, kernel_CDF, selected_feat=None):
     """
     Computing the best splits of each feature by minimizing the 
-    given objectives within the node rule's limits. 
+    given objectives within the node rule's limits
     
     The output would be the best split of each feature and the resulting
-    optimization value (scores for the split)
+    optimization value (scores for the split). If no feature component is
+    given, do the optimization for all the features
     """
+    
+    if selected_feat:
+        priors = leaf.class_prob
+        theta, score = optimizations.minimize_KDE_entropy(X, leaf.labels, 
+                                                          kernel_CDF, priors)
+        return theta, score
     
     # dimensionality of data
     d = 1 if leaf.dat.ndim==1 else leaf.dat.shape[0]
@@ -110,12 +118,7 @@ def compute_probs_KDE(leaf, kernel_CDF, symbols, theta,
     right_posts = np.zeros(c)
         
     # marginal CDF of the kernel: Pr (x<theta | N_i)
-    if not(uncond_sigma):
-        if n>1:
-            uncond_sigma = 1.06*np.std(X)*n**(-1/5.)
-        else:
-            uncond_sigma = 1.
-    marginal_CDF = kernel_CDF(uncond_sigma, X, theta)
+    marginal_CDF = kernel_CDF(X, theta)
     # taking care of being 1. or 0.
     if marginal_CDF == 1.:
         marginal_CDF -= 1e-6
@@ -128,11 +131,7 @@ def compute_probs_KDE(leaf, kernel_CDF, symbols, theta,
         indic_j = leaf.labels==symbols[j]
         if np.any(indic_j):
             X_j = X[indic_j]
-            if not(cond_sigma):
-                cond_sigma = 1.06*np.std(X_j)*n**(-1/5.)
-            else:
-                cond_sigma = 1.  
-            cc_marginal_CDF = kernel_CDF(uncond_sigma, X_j, theta)
+            cc_marginal_CDF = kernel_CDF(X_j, theta)
                         
             # computing the children's posteriors 
             left_posts[j] = leaf.class_prob[j]*(cc_marginal_CDF/
@@ -246,3 +245,31 @@ def CV_prune(T, n_folds):
     return scores, all_seqs[0][best_sub]
             
             
+def create_forest(tree_num, X, Y, method):
+    """Creating a forest with specified number of trees
+    and based on a given training data set
+    
+    Method could be CART or KDE. The output format for these two
+    methods will be different.
+    """
+    
+    if method=='CART':
+        forest = ensemble.RandomForestClassifier(n_estimators=tree_num)
+        forest.fit(X.T, Y)
+    elif method=='KDE':
+        forest = []
+        n = len(X) if X.ndim==1 else X.shape[1]
+        for i in range(tree_num):
+            # resampling
+            boot_inds = np.random.randint(0, n, n)
+            boot_X = X[boot_inds] if X.ndim==1 else X[:,boot_inds]
+            boot_Y = Y[boot_inds]
+            # tree construction
+            T = tree_structure.Tree(boot_X, boot_Y, 
+                                    objective_builders.normal_CDF)
+            T.fit_full_tree()
+            
+            forest += [copy.deepcopy(T)]
+            print i
+    
+    return forest
