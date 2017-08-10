@@ -53,9 +53,11 @@ def minimize_KDE_entropy(dat, labels, kernel_CDF, priors):
     J_m = OBJ_EVAL(dat, labels, x_m, kernel_CDF, priors)
     
     tol = 1e-6
+    max_iter = 500
     
     # repeat bisectioning until the length of the bracket is small enough
-    while(np.abs(a-b) > tol):
+    cnt=0
+    while(np.abs(a-b) > tol) and (cnt<max_iter):
 
         # left and right mid-points
         x_l = (a + x_m) / 2.
@@ -75,6 +77,8 @@ def minimize_KDE_entropy(dat, labels, kernel_CDF, priors):
         elif (J_min == J_b) | (J_min == J_r):
             a, J_a = (x_m, J_m)            
             x_m, J_m = (x_r, J_r)
+            
+        cnt += 1
             
     return x_m, J_m
     
